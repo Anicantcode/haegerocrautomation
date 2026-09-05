@@ -2,17 +2,19 @@ import { useState } from 'react';
 import { useApp, getStats, ACTIONS } from '../context/AppContext.jsx';
 import { ClearSessionDialog } from './ClearSessionDialog.jsx';
 import { ApiKeyModal } from './ApiKeyModal.jsx';
-import { exportToExcel, shareExcelFile } from '../export/excelExporter.js';
+import { ShareModal } from './ShareModal.jsx';
+import { exportToExcel } from '../export/excelExporter.js';
 import { loadApiKey } from '../ocr/geminiOCR.js';
 
 export function HomeScreen({ onNavigate }) {
   const { state, dispatch } = useApp();
   const stats = getStats(state.records);
-  const [showClear,    setShowClear]    = useState(false);
-  const [showApiKey,   setShowApiKey]   = useState(false);
-  const [apiKey,       setApiKey]       = useState(loadApiKey);
-  const [exportMsg,    setExportMsg]    = useState('');
-  const [lastExported, setLastExported] = useState(null);
+  const [showClear,      setShowClear]      = useState(false);
+  const [showApiKey,     setShowApiKey]     = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [apiKey,         setApiKey]         = useState(loadApiKey);
+  const [exportMsg,      setExportMsg]      = useState('');
+  const [lastExported,   setLastExported]   = useState(null);
 
   const handleExport = () => {
     try {
@@ -31,26 +33,15 @@ export function HomeScreen({ onNavigate }) {
     }
   };
 
-  const handleShare = async () => {
-    try {
-      if (!lastExported) return;
-      const res = await shareExcelFile(lastExported);
-      if (res.shared) {
-        setExportMsg('✅ Shared successfully!');
-        setTimeout(() => setExportMsg(''), 4000);
-      } else if (res.downloaded) {
-        setExportMsg('📥 File downloaded to your device.');
-        setTimeout(() => setExportMsg(''), 4000);
-      }
-    } catch (err) {
-      setExportMsg(`❌ Share failed: ${err.message}`);
-      setTimeout(() => setExportMsg(''), 4000);
-    }
+  const handleShare = () => {
+    if (!lastExported) return;
+    setShowShareModal(true);
   };
 
   const handleClear = () => {
     dispatch({ type: ACTIONS.CLEAR_SESSION });
     setLastExported(null);
+    setShowShareModal(false);
     setShowClear(false);
   };
 
@@ -169,6 +160,15 @@ export function HomeScreen({ onNavigate }) {
             setShowApiKey(false);
           }}
           onClose={() => setShowApiKey(false)}
+        />
+      )}
+
+      {showShareModal && lastExported && (
+        <ShareModal
+          isOpen={showShareModal}
+          fileData={lastExported}
+          records={state.records}
+          onClose={() => setShowShareModal(false)}
         />
       )}
     </div>

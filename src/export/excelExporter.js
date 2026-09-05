@@ -115,3 +115,39 @@ export async function shareExcelFile(fileData) {
   return { shared: false, downloaded: true };
 }
 
+/**
+ * Creates a CSV Blob from records (useful as an alternative share format)
+ */
+export function createCsvBlob(records) {
+  const header = 'Sr No,DN No,Docket No\n';
+  const rows = (records || []).map((r, i) => `${i + 1},"${r.dnNumber || ''}","${r.docketNumber || ''}"`).join('\n');
+  return new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+}
+
+/**
+ * Formats records cleanly for sharing via WhatsApp message
+ */
+export function formatRecordsForWhatsApp(records) {
+  if (!records || records.length === 0) return 'No records to share.';
+  const count = records.length;
+  const complete = records.filter(r => r.status === 'COMPLETE').length;
+  const header = `📋 *Invoice & Docket Scan Report*\nTotal Records: ${count} (${complete} Complete)\n------------------------------\n`;
+  const lines = records.map((r, i) => {
+    const dn = r.dnNumber || '(missing)';
+    const docket = r.docketNumber || '(missing)';
+    return `${i + 1}. DN: ${dn}  |  Docket: ${docket}`;
+  });
+  return `${header}${lines.join('\n')}\n------------------------------\nSent from Invoice & Docket Scanner`;
+}
+
+/**
+ * Formats records for copy-pasting (tab-delimited for Excel/Sheets)
+ */
+export function formatRecordsForClipboard(records) {
+  if (!records || records.length === 0) return '';
+  const header = 'Sr No\tDN No\tDocket No\n';
+  const rows = records.map((r, i) => `${i + 1}\t${r.dnNumber || ''}\t${r.docketNumber || ''}`).join('\n');
+  return `${header}${rows}`;
+}
+
+
