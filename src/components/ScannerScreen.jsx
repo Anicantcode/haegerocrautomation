@@ -342,6 +342,11 @@ export function ScannerScreen({ mode, onBack }) {
                   Ensure the <span className="text-gray-200 font-medium">{fieldLabel}</span> label
                   and number are clearly visible, well-lit, and in focus.
                 </p>
+                {ocrResult?.raw && (
+                  <div className="mt-3 p-2 bg-gray-900 border border-gray-800 rounded-lg text-[11px] font-mono text-gray-400 break-all max-h-24 overflow-y-auto">
+                    AI response: {ocrResult.raw}
+                  </div>
+                )}
                 {!apiKey && (
                   <button onClick={() => setShowApiKey(true)}
                     className="mt-3 text-purple-400 text-sm underline underline-offset-2">

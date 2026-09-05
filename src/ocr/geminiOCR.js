@@ -9,38 +9,27 @@ const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const PROMPTS = {
-  invoice: `You are reading a printed shipping invoice photograph. The document may be rotated in any orientation (horizontal, vertical, 90°, 180°, or 270°).
-Your ONLY task: locate the field labeled "DN No.", "DN No", "D.N.No.", or "Delivery Note No." and extract the COMPLETE multi-digit number (typically 8 to 12 digits, e.g. 2131537328).
+  invoice: `You are an expert OCR vision system analyzing a printed shipping document/invoice.
+Your task: Find the Delivery Note Number (DN No.).
+Look for the text labeled "DN No.", "DN No", "D.N. No.", or "Delivery Note".
+The DN Number is the numeric sequence printed next to or below that label (for example: 2134197996).
+Ignore "TO No." (Transport Order) which may be printed nearby.
 
-CRITICAL INSTRUCTIONS:
-1. Rotation: If the text is oriented sideways or vertically, read it in the correct orientation.
-2. Full Number: The DN number is a long sequence (typically 8-12 digits). Extract ALL digits in the sequence. Never truncate or return only the first few digits (e.g., do NOT return "213" if the number is "2131537328").
-3. Spacing: If digits have small spaces between groups (e.g. "213 153 7328"), combine them all into one continuous number.
-4. Field Exclusion: Do NOT return the "TO No.", "Transport Order No.", "SO No.", "PO No.", or other numbers printed below or near it.
-5. Format: Return ONLY the digits, nothing else. No labels, no spaces, no punctuation.
-6. If not found, return: NOT_FOUND
+Output valid JSON with the exact key "dnNumber":
+{
+  "dnNumber": "2134197996"
+}
+If no DN number is present, return {"dnNumber": ""}.`,
 
-Example:
-Document text:
-DN No. 2131537328
-TO No. 8000192992
-Output: 2131537328`,
+  docket: `You are an expert OCR vision system analyzing a printed shipping docket / consignment note.
+Your task: Find the Docket Number / Consignment Note Number / LR Number.
+Look for "Docket Number", "Docket No.", "Consignment No.", or the code printed near/under the barcode (for example: 4034715112).
 
-  docket: `You are reading a printed shipping docket / consignment note / waybill photograph. The document may be rotated at any angle.
-Your ONLY task: find the Docket Number / Consignment Note Number / LR Number / AWB Number / Waybill Number.
-It is typically printed near, above, or below a barcode or at the top of the document labeled "Docket Number", "Docket No.", "Consignment Note No.", "LR No.", etc.
-
-CRITICAL INSTRUCTIONS:
-1. Extract the COMPLETE full docket number (digits and any prefix letters if part of the code, e.g. 4034715112 or DT5118).
-2. Extract ALL characters/digits across the entire sequence. Never truncate.
-3. Return ONLY the number/code. No labels, no formatting spaces, no punctuation.
-4. If not found, return: NOT_FOUND
-
-Example:
-Document text:
-Docket Number
-4034715112
-Output: 4034715112`,
+Output valid JSON with the exact key "docketNumber":
+{
+  "docketNumber": "4034715112"
+}
+If no Docket number is present, return {"docketNumber": ""}.`,
 };
 
 // ─── Main function ────────────────────────────────────────────────────────────
@@ -71,7 +60,8 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
     }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 64,
+      maxOutputTokens: 128,
+      responseMimeType: 'application/json',
     },
   };
 
@@ -98,7 +88,6 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         const msg = errJson?.error?.message ?? `HTTP ${res.status}: ${res.statusText}`;
-        // If it's a 404 Not Found on the model, continue to next candidate model
         if (res.status === 404 || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('is not supported')) {
           continue;
         }
@@ -108,19 +97,51 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
       const json = await res.json();
       const raw  = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
 
-      if (!raw || raw.toUpperCase() === 'NOT_FOUND') {
+      // ── Layer 1: Structured JSON parsing ─────────────────────────────────
+      let extracted = '';
+      try {
+        const cleanJson = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        extracted = mode === 'invoice'
+          ? (parsed.dnNumber || parsed.dn_number || parsed.dn || parsed.number || '')
+          : (parsed.docketNumber || parsed.docket_number || parsed.docket || parsed.number || '');
+      } catch (_) {
+        // Look for JSON object in text
+        const jsonMatch = raw.match(/\{[\s\S]*?\}/);
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            extracted = mode === 'invoice'
+              ? (parsed.dnNumber || parsed.dn_number || parsed.number || '')
+              : (parsed.docketNumber || parsed.docket_number || parsed.number || '');
+          } catch (_) {}
+        }
+      }
+
+      // ── Layer 2: Regex extraction fallback on raw response ───────────────
+      if (!extracted) {
+        if (mode === 'invoice') {
+          // Look for 8-12 digits in raw text
+          const m = raw.match(/DN[\s\w.:\-]*?(\d{8,12})/i) || raw.match(/\b(\d{8,12})\b/);
+          if (m) extracted = m[1];
+        } else {
+          const m = raw.match(/(?:Docket|Consignment)[\s\w.:\-]*?([A-Za-z0-9]{6,20})/i) || raw.match(/\b([A-Za-z0-9]{6,20})\b/);
+          if (m) extracted = m[1];
+        }
+      }
+
+      // Clean digits/characters
+      const cleaned = mode === 'invoice'
+        ? String(extracted).replace(/\D/g, '')
+        : String(extracted).replace(/[^A-Za-z0-9]/g, '');
+
+      if (!cleaned) {
         return { value: '', confidence: 'LOW', raw };
       }
 
-      // Clean — remove label prefixes if returned
-      let cleaned = raw.replace(/^(?:docket\s*(?:number|no|num)?|consignment\s*(?:note|no|num)?|lr\s*no|awb\s*no|cnote)[\s:\-\.#]*/i, '').trim();
-      cleaned = cleaned.replace(/[\s\-_]/g, '');
-
-      if (!cleaned || cleaned.toUpperCase() === 'NOT_FOUND') return { value: '', confidence: 'LOW', raw };
-
       const isHighConf = mode === 'invoice'
-        ? /^\d{6,14}$/.test(cleaned)
-        : /^[A-Za-z0-9]{5,22}$/.test(cleaned);
+        ? /^\d{8,12}$/.test(cleaned)
+        : /^[A-Za-z0-9]{6,22}$/.test(cleaned);
 
       return {
         value:      cleaned,
