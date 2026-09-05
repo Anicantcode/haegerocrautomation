@@ -87,9 +87,10 @@ export function ScannerScreen({ mode, onBack }) {
     // ── Tier 1: Gemini AI Vision (if selected or auto with key) ───────────
     if ((activeEngine === 'gemini' || activeEngine === 'auto') && key) {
       try {
-        setProcessingMsg('Analyzing with Gemini AI Vision…');
+        setProcessingMsg('Connecting to Gemini AI Vision…');
         setOcrEngine('gemini');
         const result = await extractWithGemini(imageDataUrl, mode, key);
+        setProcessingMsg(`Extracting ${fieldLabel}…`);
         setOcrResult(result);
         if (result && result.value) {
           setPhase(PHASE.OK);
@@ -118,10 +119,11 @@ export function ScannerScreen({ mode, onBack }) {
     // ── Tier 2: In-Browser Baidu PaddleOCR v4 (Offline AI) ─────────────────
     if (activeEngine === 'paddle' || activeEngine === 'auto') {
       try {
-        setProcessingMsg('Reading with Baidu PaddleOCR v4…');
+        setProcessingMsg('Starting Baidu PaddleOCR v4…');
         setOcrEngine('paddle');
         const target = processedCanvas || imageDataUrl;
         const data = await recognizeWithPaddle(target, (msg) => setProcessingMsg(msg));
+        setProcessingMsg(`Locating ${fieldLabel} in document…`);
         const result = mode === 'invoice'
           ? extractDNNumber(data.text, data.words)
           : extractDocketNumber(data.text, data.words);
@@ -169,6 +171,7 @@ export function ScannerScreen({ mode, onBack }) {
       });
       const target = processedCanvas || imageDataUrl;
       const data   = await recognizeImage(target);
+      setProcessingMsg(`Locating ${fieldLabel} in text…`);
       const result = mode === 'invoice'
         ? extractDNNumber(data.text, data.words)
         : extractDocketNumber(data.text, data.words);
@@ -358,14 +361,75 @@ export function ScannerScreen({ mode, onBack }) {
           </>
         )}
 
-        {/* ─── PROCESSING ───────────────────────────────────────────────────── */}
+        {/* ─── PROCESSING / EXTRACTING LOADING SCREEN ────────────────────────── */}
         {phase === PHASE.PROCESSING && (
-          <div className="absolute inset-0 flex flex-col">
-            {previewUrl && <img src={previewUrl} alt="Captured" className="w-full flex-1 object-contain bg-black" />}
-            <div className="absolute inset-0 flex flex-col items-center justify-end pb-16 bg-black/60">
-              <div className="bg-gray-900/95 rounded-2xl px-8 py-6 flex flex-col items-center gap-4 border border-gray-700 shadow-2xl mx-4 w-full max-w-xs">
-                <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-white font-semibold text-lg text-center">{processingMsg || 'Reading document…'}</p>
+          <div className="absolute inset-0 flex flex-col bg-black">
+            {/* Captured document preview with animated laser scanner */}
+            <div className="relative w-full flex-1 overflow-hidden flex items-center justify-center bg-gray-950">
+              {previewUrl && (
+                <img
+                  src={previewUrl}
+                  alt="Processing document"
+                  className="w-full h-full object-contain opacity-50 filter brightness-90"
+                />
+              )}
+
+              {/* Glowing animated laser scan beam across document */}
+              <div className="animate-laser-scan left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_18px_#38bdf8] pointer-events-none" />
+
+              {/* Scanning corner reticles */}
+              <div className="absolute inset-4 md:inset-8 pointer-events-none border border-cyan-500/30 rounded-2xl flex flex-col justify-between p-3">
+                <div className="flex justify-between">
+                  <div className="w-5 h-5 border-t-2 border-l-2 border-cyan-400" />
+                  <div className="w-5 h-5 border-t-2 border-r-2 border-cyan-400" />
+                </div>
+                <div className="flex justify-between">
+                  <div className="w-5 h-5 border-b-2 border-l-2 border-cyan-400" />
+                  <div className="w-5 h-5 border-b-2 border-r-2 border-cyan-400" />
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Extraction Card */}
+            <div className="absolute inset-x-0 bottom-0 z-30 p-4 pb-8 bg-gradient-to-t from-black via-black/95 to-transparent">
+              <div className="bg-gray-900/90 backdrop-blur-md rounded-2xl p-5 border border-gray-700/80 shadow-2xl max-w-sm mx-auto flex flex-col items-center text-center">
+                
+                {/* Engine Badge */}
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${engineBadge.cls}`}>
+                    {engineBadge.label}
+                  </span>
+                  <span className="text-[11px] text-cyan-300 bg-cyan-950/80 border border-cyan-800 px-2 py-0.5 rounded-full font-medium">
+                    ⚡ Processing
+                  </span>
+                </div>
+
+                {/* Animated Scanner Ring */}
+                <div className="relative w-14 h-14 mb-3 flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border-4 border-gray-700 border-t-cyan-400 border-r-blue-500 animate-spin" />
+                  <div className="w-7 h-7 rounded-full bg-cyan-500/20 flex items-center justify-center animate-pulse">
+                    <span className="text-base">📄</span>
+                  </div>
+                </div>
+
+                {/* Primary Loading Title */}
+                <h3 className="text-white font-bold text-lg mb-1 tracking-wide">
+                  Extracting {fieldLabel}…
+                </h3>
+
+                {/* Dynamic Status / Progress Subtext */}
+                <p className="text-cyan-300 text-xs font-medium mb-3 min-h-[18px] transition-all">
+                  {processingMsg || 'Detecting & reading numbers…'}
+                </p>
+
+                {/* Animated Shimmer Bar */}
+                <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mb-2">
+                  <div className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 rounded-full w-full animate-pulse" />
+                </div>
+
+                <span className="text-[11px] text-gray-400">
+                  Scanning document digits &amp; labels
+                </span>
               </div>
             </div>
           </div>

@@ -29,3 +29,24 @@
     @apply bg-gray-800 rounded-xl p-4 text-center;
   }
 }
+
+@keyframes laserScan {
+  0% {
+    top: 2%;
+    opacity: 0.8;
+  }
+  50% {
+    top: 94%;
+    opacity: 1;
+  }
+  100% {
+    top: 2%;
+    opacity: 0.8;
+  }
+}
+
+.animate-laser-scan {
+  position: absolute;
+  animation: laserScan 2.4s ease-in-out infinite;
+}
+
