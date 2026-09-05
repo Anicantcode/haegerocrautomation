@@ -418,14 +418,11 @@ export function ScannerScreen({ mode, onBack }) {
                 )}
 
                 {/* Subtle corner framing indicators */}
-                <div className="absolute inset-4 md:inset-8 pointer-events-none border border-white/20 rounded-2xl flex flex-col justify-between p-3">
+                <div className="absolute inset-4 md:inset-8 pointer-events-none border border-white/10 rounded-2xl flex flex-col justify-between p-3">
                   <div className="flex justify-between">
                     <div className="w-6 h-6 border-t-2 border-l-2 border-yellow-400 rounded-tl-lg" />
                     <div className="w-6 h-6 border-t-2 border-r-2 border-yellow-400 rounded-tr-lg" />
                   </div>
-                  <p className="text-center text-white/90 text-xs md:text-sm font-medium bg-black/60 backdrop-blur-sm py-1 px-3 rounded-full mx-auto shadow">
-                    Position {modeLabel} ({fieldLabel}) in view
-                  </p>
                   <div className="flex justify-between">
                     <div className="w-6 h-6 border-b-2 border-l-2 border-yellow-400 rounded-bl-lg" />
                     <div className="w-6 h-6 border-b-2 border-r-2 border-yellow-400 rounded-br-lg" />
@@ -434,15 +431,12 @@ export function ScannerScreen({ mode, onBack }) {
 
                 {/* Barcode Alignment Laser Guide */}
                 {autoBarcode && isReady && (
-                  <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center z-10">
-                    <div className={`w-full h-0.5 opacity-75 ${
+                  <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center z-10">
+                    <div className={`w-full h-[1.5px] rounded-full opacity-80 ${
                       isInvoice
-                        ? 'bg-cyan-400 shadow-[0_0_10px_#38bdf8]'
-                        : 'bg-fuchsia-400 shadow-[0_0_10px_#d946ef]'
+                        ? 'bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#38bdf8]'
+                        : 'bg-gradient-to-r from-transparent via-fuchsia-400 to-transparent shadow-[0_0_12px_#d946ef]'
                     }`} />
-                    <span className="text-[10px] text-gray-200 bg-black/75 backdrop-blur-md px-3 py-1 rounded-full mt-2 border border-gray-700/80 shadow flex items-center gap-1.5">
-                      <span className="animate-pulse">⚡</span> Aim barcode here · or tap shutter for AI OCR
-                    </span>
                   </div>
                 )}
 
