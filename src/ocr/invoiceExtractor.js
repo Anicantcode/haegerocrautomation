@@ -51,10 +51,11 @@ export function extractDNNumber(text, words = []) {
     const nums = words
       .filter(w => w.confidence > 60 && /^\d{8,12}$/.test(w.text.replace(/\s/g, '')))
       .sort((a, b) => b.confidence - a.confidence);
-    if (nums.length > 0) {
-      const r = validateDNNumber(nums[0].text);
-      if (r.confidence !== 'LOW' && !isLikelyArtefact(r.value))
+    for (const numWord of nums) {
+      const r = validateDNNumber(numWord.text);
+      if (r.confidence !== 'LOW' && !r.isPhone && !isLikelyArtefact(r.value)) {
         return { ...r, confidence: 'MEDIUM' };
+      }
     }
   }
 
@@ -62,7 +63,7 @@ export function extractDNNumber(text, words = []) {
   const allNums = (text.match(/\b\d{8,12}\b/g) || []).filter(n => !isLikelyArtefact(n));
   for (const num of allNums) {
     const r = validateDNNumber(num);
-    if (r.confidence !== 'LOW') return { ...r, confidence: 'MEDIUM' };
+    if (r.confidence !== 'LOW' && !r.isPhone) return { ...r, confidence: 'MEDIUM' };
   }
 
   return { value: '', confidence: 'LOW' };

@@ -1,4 +1,4 @@
-import { validateDocketNumber } from './numberValidator.js';
+import { validateDocketNumber, validateDNNumber } from './numberValidator.js';
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -227,13 +227,17 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
         return { value: '', confidence: 'LOW', raw };
       }
 
-      const isHighConf = mode === 'invoice'
-        ? /^\d{8,12}$/.test(cleaned)
-        : /^[A-Za-z0-9]{4,22}$/.test(cleaned) && /\d{2,}/.test(cleaned);
+      const validation = mode === 'invoice'
+        ? validateDNNumber(cleaned)
+        : validateDocketNumber(cleaned, { allowPotentialMobile: true });
+
+      if (validation.isPhone || validation.confidence === 'LOW') {
+        return { value: '', confidence: 'LOW', raw };
+      }
 
       return {
-        value:      cleaned,
-        confidence: isHighConf ? 'HIGH' : 'MEDIUM',
+        value:      validation.value,
+        confidence: validation.confidence,
         raw,
       };
     } catch (err) {
