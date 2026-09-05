@@ -1,0 +1,18 @@
+{
+  "name": "Invoice & Docket Scanner",
+  "short_name": "DocScanner",
+  "description": "Offline-ready AI Invoice & Docket Number Scanner with Baidu PaddleOCR and Gemini AI",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

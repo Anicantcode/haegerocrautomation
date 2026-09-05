@@ -56,16 +56,36 @@ export async function initPaddleOCR(onProgress) {
 
   initPromise = (async () => {
     try {
-      onProgress?.('Loading Baidu PaddleOCR v4 neural models (~6MB)...');
+      onProgress?.('Loading bundled Baidu PaddleOCR v4 models (~6MB)...');
       const { PaddleOcrService } = await import('ppu-paddle-ocr/web');
-      const service = new PaddleOcrService();
+
+      const base = import.meta.env.BASE_URL || '/';
+      const cleanBase = base.endsWith('/') ? base : base + '/';
+      const bundledModels = {
+        detection: `${cleanBase}models/PP-OCRv6_tiny_det.ort`,
+        recognition: `${cleanBase}models/PP-OCRv6_tiny_rec.ort`,
+        charactersDictionary: `${cleanBase}models/ppocrv6_tiny_dict.txt`
+      };
+
+      const service = new PaddleOcrService({
+        model: bundledModels
+      });
       await service.initialize();
       paddleService = service;
       return service;
     } catch (err) {
-      console.error('Failed to initialize PaddleOCR:', err);
-      initPromise = null;
-      throw err;
+      console.warn('Bundled model initialization failed, trying default CDN fallback:', err);
+      try {
+        const { PaddleOcrService } = await import('ppu-paddle-ocr/web');
+        const fallbackService = new PaddleOcrService();
+        await fallbackService.initialize();
+        paddleService = fallbackService;
+        return fallbackService;
+      } catch (cdnErr) {
+        console.error('All PaddleOCR initialization attempts failed:', cdnErr);
+        initPromise = null;
+        throw cdnErr;
+      }
     }
   })();
 
