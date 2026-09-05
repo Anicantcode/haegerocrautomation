@@ -32,6 +32,58 @@ Output valid JSON with the exact key "docketNumber":
 If no Docket number is present, return {"docketNumber": ""}.`,
 };
 
+// Cached discovered models for current session
+let discoveredModels = null;
+
+async function getSupportedModels(apiKey) {
+  if (discoveredModels && discoveredModels.length > 0) {
+    return discoveredModels;
+  }
+
+  const PREFERRED_ORDER = [
+    'gemini-3.1-flash-image',
+    'gemini-3.1-flash-lite-image',
+    'gemini-3.6-flash',
+    'gemini-3.1-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-2.0-flash-lite',
+  ];
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey.trim()}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      const available = (data.models || [])
+        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+        .map(m => m.name.replace(/^models\//, ''));
+
+      const sorted = [];
+      for (const pref of PREFERRED_ORDER) {
+        if (available.includes(pref)) sorted.push(pref);
+      }
+      for (const av of available) {
+        if (!sorted.includes(av) && (av.includes('flash') || av.includes('image'))) {
+          sorted.push(av);
+        }
+      }
+
+      if (sorted.length > 0) {
+        discoveredModels = sorted;
+        console.log('Gemini active models found:', discoveredModels);
+        return discoveredModels;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch /models list, using preferred list:', err.message);
+  }
+
+  return PREFERRED_ORDER;
+}
+
 // ─── Main function ────────────────────────────────────────────────────────────
 /**
  * @param {string} imageDataUrl  JPEG/PNG data URL of the captured image
@@ -65,14 +117,7 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
     },
   };
 
-  // Candidate models in order of speed and stability
-  const models = [
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-2.5-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-1.5-pro',
-  ];
+  const models = await getSupportedModels(apiKey);
   let lastError = null;
 
   for (const model of models) {
@@ -172,15 +217,8 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
  */
 export async function testGeminiApiKey(apiKey) {
   if (!apiKey || !apiKey.trim()) throw new Error('Please enter an API key.');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey.trim()}`;
-  const res = await fetch(url);
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message ?? `API error ${res.status}`);
-  }
-  const data = await res.json();
-  if (!data.models || data.models.length === 0) {
+  const models = await getSupportedModels(apiKey);
+  if (!models || models.length === 0) {
     throw new Error('No models accessible with this API key.');
   }
   return true;
