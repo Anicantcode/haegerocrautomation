@@ -9,38 +9,38 @@ const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const PROMPTS = {
-  invoice: `You are reading a printed shipping invoice photograph.
-Your ONLY task: find the field labeled "DN No.", "DN No", "D.N.No.", or "Delivery Note No." and extract its numeric value.
+  invoice: `You are reading a printed shipping invoice photograph. The document may be rotated in any orientation (horizontal, vertical, 90°, 180°, or 270°).
+Your ONLY task: locate the field labeled "DN No.", "DN No", "D.N.No.", or "Delivery Note No." and extract the COMPLETE multi-digit number (typically 8 to 12 digits, e.g. 2131537328).
 
-STRICT RULES:
-- Return ONLY the digits of the "DN No." / "Delivery Note No.".
-- DO NOT return the "TO No.", "TO Number", "Transport Order", "SO No.", "PO No.", "Invoice No.", or any other field.
-- If both "DN No." and "TO No." appear on the document, IGNORE "TO No." completely and extract ONLY the "DN No." value.
-- No spaces, no letters, no punctuation, no label text, no explanation.
-- If you genuinely cannot find a DN number, return exactly: NOT_FOUND
+CRITICAL INSTRUCTIONS:
+1. Rotation: If the text is oriented sideways or vertically, read it in the correct orientation.
+2. Full Number: The DN number is a long sequence (typically 8-12 digits). Extract ALL digits in the sequence. Never truncate or return only the first few digits (e.g., do NOT return "213" if the number is "2131537328").
+3. Spacing: If digits have small spaces between groups (e.g. "213 153 7328"), combine them all into one continuous number.
+4. Field Exclusion: Do NOT return the "TO No.", "Transport Order No.", "SO No.", "PO No.", or other numbers printed below or near it.
+5. Format: Return ONLY the digits, nothing else. No labels, no spaces, no punctuation.
+6. If not found, return: NOT_FOUND
 
 Example:
-If the document shows:
+Document text:
 DN No. 2131537328
 TO No. 8000192992
 Output: 2131537328`,
 
-  docket: `You are reading a printed shipping docket / consignment note / waybill photograph.
+  docket: `You are reading a printed shipping docket / consignment note / waybill photograph. The document may be rotated at any angle.
 Your ONLY task: find the Docket Number / Consignment Note Number / LR Number / AWB Number / Waybill Number.
-It is typically:
-- Labeled "Docket Number", "Docket No.", "Consignment Note No.", "Consignment No.", "LR No.", "AWB No.", or "Waybill No."
-- Printed near, above, or below a barcode or at the top of the shipping document.
+It is typically printed near, above, or below a barcode or at the top of the document labeled "Docket Number", "Docket No.", "Consignment Note No.", "LR No.", etc.
 
-STRICT RULES:
-- Return ONLY the exact docket / consignment number, nothing else.
-- DO NOT return "DN No.", "Invoice No.", or other headers.
-- Strip spaces, dashes, or formatting, but keep letters/digits that are part of the code (e.g. DT5118 or 511874921).
-- If you genuinely cannot find it, return exactly: NOT_FOUND
+CRITICAL INSTRUCTIONS:
+1. Extract the COMPLETE full docket number (digits and any prefix letters if part of the code, e.g. 4034715112 or DT5118).
+2. Extract ALL characters/digits across the entire sequence. Never truncate.
+3. Return ONLY the number/code. No labels, no formatting spaces, no punctuation.
+4. If not found, return: NOT_FOUND
 
 Example:
-If image shows:
-Docket Number 511874921
-Output: 511874921`,
+Document text:
+Docket Number
+4034715112
+Output: 4034715112`,
 };
 
 // ─── Main function ────────────────────────────────────────────────────────────

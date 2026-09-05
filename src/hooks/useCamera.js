@@ -103,7 +103,7 @@ export function useCamera() {
     const raw = document.createElement('canvas');
     raw.width = W; raw.height = H;
     raw.getContext('2d').drawImage(video, 0, 0, W, H);
-    const previewUrl = raw.toDataURL('image/jpeg', 0.92);
+    const previewUrl = raw.toDataURL('image/jpeg', 0.96);
 
     // ── 2. Processed copy: upscale 2.5× + binarise (for Tesseract) ──────────
     const SCALE = 2.5;
