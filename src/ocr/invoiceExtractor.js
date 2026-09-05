@@ -1,7 +1,7 @@
 import { validateDNNumber, applyOCRCorrections, isLikelyArtefact } from './numberValidator.js';
 
-const DN_LABEL_RE   = /d\.?\s*n\.?\s*no\.?|dn\s*no\.?|delivery\s*note\s*no\.?/i;
-const DN_INLINE_RE  = /(?:d\.?\s*n\.?\s*no\.?|dn\s*no\.?|delivery\s*note\s*no\.?)\s*[:\-]?\s*(\d[\d\s]{5,14})/i;
+const DN_LABEL_RE   = /(?:d\.?\s*n\.?\s*(?:no|num|#|\:)?|delivery\s*note(?:\s*no)?)\b/i;
+const DN_INLINE_RE  = /(?:d\.?\s*n\.?\s*(?:no|num|#)?|delivery\s*note(?:\s*no)?)\s*[:\-#]?\s*(\d[\d\s]{5,14})/i;
 
 /**
  * Extract DN number using both raw text patterns AND Tesseract word objects.
@@ -71,7 +71,7 @@ export function extractDNNumber(text, words = []) {
 // ─── Helper: find a numeric word whose bounding-box is near a DN-label word ──
 function extractByWordProximity(words, labelType) {
   // Find all label words (low confidence is fine — we just need position)
-  const labelWords = words.filter(w => DN_LABEL_RE.test(w.text));
+  const labelWords = words.filter(w => /^(?:d\.?n\.?|dn|delivery)$/i.test(w.text) || DN_LABEL_RE.test(w.text));
   if (labelWords.length === 0) return null;
 
   for (const label of labelWords) {

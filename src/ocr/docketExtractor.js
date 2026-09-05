@@ -80,7 +80,7 @@ function extractByWordProximity(words) {
       const cleaned = w.text.replace(/\s/g, '');
       return (
         Math.abs(wMid - yMid) < 120 &&
-        /^\d{12,18}$/.test(cleaned)
+        /^[A-Za-z0-9\-]{5,22}$/.test(cleaned)
       );
     }).sort((a, b) => b.confidence - a.confidence);
 

@@ -22,23 +22,23 @@ function otsuThreshold(data) {
   return threshold;
 }
 
-function applyBinarisation(ctx, w, h) {
+function applyContrastEnhancement(ctx, w, h) {
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
-  // Grayscale
+  let min = 255, max = 0;
+  // Convert to grayscale & find dynamic range
   for (let i = 0; i < d.length; i += 4) {
     const g = Math.round(0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2]);
-    d[i] = d[i+1] = d[i+2] = g;
+    d[i] = g;
+    if (g < min) min = g;
+    if (g > max) max = g;
   }
-  // Detect background brightness
-  let light = 0;
-  for (let i = 0; i < d.length; i += 4) if (d[i] > 128) light++;
-  const lightBg = light > (d.length / 4) * 0.5;
-  // Otsu threshold
-  const thr = otsuThreshold(d);
+  // Adaptive contrast stretching (preserves fonts, dot matrix, and eliminates washed-out text)
+  const range = (max - min) || 1;
   for (let i = 0; i < d.length; i += 4) {
-    const px = lightBg ? (d[i] < thr ? 0 : 255) : (d[i] > thr ? 0 : 255);
-    d[i] = d[i+1] = d[i+2] = px;
+    const g = d[i];
+    const stretched = Math.min(255, Math.max(0, Math.round(((g - min) / range) * 255)));
+    d[i] = d[i+1] = d[i+2] = stretched;
     d[i+3] = 255;
   }
   ctx.putImageData(img, 0, 0);
@@ -105,8 +105,8 @@ export function useCamera() {
     raw.getContext('2d').drawImage(video, 0, 0, W, H);
     const previewUrl = raw.toDataURL('image/jpeg', 0.96);
 
-    // ── 2. Processed copy: upscale 2.5× + binarise (for Tesseract) ──────────
-    const SCALE = 2.5;
+    // ── 2. Processed copy: contrast-enhanced canvas for local OCR (Paddle / Tesseract) ──
+    const SCALE = Math.min(1.5, 2048 / Math.max(W, H));
     const proc = document.createElement('canvas');
     proc.width  = Math.round(W * SCALE);
     proc.height = Math.round(H * SCALE);
@@ -114,7 +114,7 @@ export function useCamera() {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(video, 0, 0, proc.width, proc.height);
-    applyBinarisation(ctx, proc.width, proc.height);
+    applyContrastEnhancement(ctx, proc.width, proc.height);
 
     return { previewUrl, processedCanvas: proc };
   }, [isReady]);

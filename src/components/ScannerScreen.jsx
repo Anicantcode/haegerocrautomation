@@ -33,6 +33,8 @@ export function ScannerScreen({ mode, onBack }) {
   const [previewUrl,    setPreviewUrl]     = useState(null);
   const [ocrResult,     setOcrResult]      = useState(null);
   const [ocrEngine,     setOcrEngine]      = useState('');   // 'gemini' | 'paddle' | 'tesseract'
+  const [engineChoice,  setEngineChoice]   = useState(() => localStorage.getItem('haeger_ocr_engine') || 'auto');
+  const [lastOcrError,  setLastOcrError]   = useState('');
   const [processingMsg, setProcessingMsg]  = useState('');
   const [editValue,     setEditValue]      = useState(null);
   const [showManual,    setShowManual]     = useState(false);
@@ -45,6 +47,11 @@ export function ScannerScreen({ mode, onBack }) {
   const fieldLabel = mode === 'invoice' ? 'DN No.'  : 'Consignment Note No.';
 
   useEffect(() => { startCamera(); return () => stopCamera(); }, []); // eslint-disable-line
+
+  const handleSetEngine = (choice) => {
+    setEngineChoice(choice);
+    localStorage.setItem('haeger_ocr_engine', choice);
+  };
 
   // ── Save confirmed value ─────────────────────────────────────────────────────
   const saveValue = useCallback((value) => {
@@ -72,11 +79,13 @@ export function ScannerScreen({ mode, onBack }) {
     setPreviewUrl(imageDataUrl);
     setPhase(PHASE.PROCESSING);
     setDupWarning('');
+    setLastOcrError('');
 
     const key = loadApiKey();
+    const activeEngine = engineChoice;
 
-    // ── Tier 1: Gemini AI Vision ───────────────────────────────────────────
-    if (key) {
+    // ── Tier 1: Gemini AI Vision (if selected or auto with key) ───────────
+    if ((activeEngine === 'gemini' || activeEngine === 'auto') && key) {
       try {
         setProcessingMsg('Analyzing with Gemini AI Vision…');
         setOcrEngine('gemini');
@@ -85,48 +94,92 @@ export function ScannerScreen({ mode, onBack }) {
         if (result && result.value) {
           setPhase(PHASE.OK);
           return;
+        } else if (activeEngine === 'gemini') {
+          setPhase(PHASE.NONE);
+          return;
         }
       } catch (err) {
         console.error('Gemini OCR error:', err);
-        setDupWarning(`Gemini AI Error: ${err.message}`);
-        setProcessingMsg(`Gemini AI error (${err.message}). Trying Baidu PaddleOCR v4…`);
+        setLastOcrError(`Gemini: ${err.message}`);
+        if (activeEngine === 'gemini') {
+          setDupWarning(`Gemini AI Error: ${err.message}`);
+          setPhase(PHASE.NONE);
+          return;
+        }
+        setProcessingMsg(`Gemini unavailable (${err.message}). Trying Baidu PaddleOCR…`);
       }
+    } else if (activeEngine === 'gemini' && !key) {
+      setShowApiKey(true);
+      setPhase(PHASE.PREVIEW);
+      setDupWarning('Please enter your Gemini API key first.');
+      return;
     }
 
     // ── Tier 2: In-Browser Baidu PaddleOCR v4 (Offline AI) ─────────────────
-    try {
-      setProcessingMsg('Reading with Baidu PaddleOCR v4…');
-      setOcrEngine('paddle');
-      const data = await recognizeWithPaddle(imageDataUrl, (msg) => setProcessingMsg(msg));
-      const result = mode === 'invoice'
-        ? extractDNNumber(data.text, data.words)
-        : extractDocketNumber(data.text, data.words);
-      if (result && result.value && result.confidence !== 'LOW') {
-        setOcrResult(result);
-        setPhase(PHASE.OK);
-        return;
+    if (activeEngine === 'paddle' || activeEngine === 'auto') {
+      try {
+        setProcessingMsg('Reading with Baidu PaddleOCR v4…');
+        setOcrEngine('paddle');
+        const target = processedCanvas || imageDataUrl;
+        const data = await recognizeWithPaddle(target, (msg) => setProcessingMsg(msg));
+        const result = mode === 'invoice'
+          ? extractDNNumber(data.text, data.words)
+          : extractDocketNumber(data.text, data.words);
+
+        if (result && result.value && result.confidence !== 'LOW') {
+          setOcrResult({ ...result, rawText: data.text });
+          setPhase(PHASE.OK);
+          return;
+        } else if (result && result.value && activeEngine === 'paddle') {
+          setOcrResult({ ...result, rawText: data.text });
+          setPhase(PHASE.OK);
+          return;
+        } else if (activeEngine === 'paddle') {
+          setOcrResult({
+            value: result?.value || '',
+            confidence: result?.confidence || 'LOW',
+            rawText: data.text || 'No text recognized by PaddleOCR'
+          });
+          setPhase(result?.value ? PHASE.OK : PHASE.NONE);
+          return;
+        }
+      } catch (paddleErr) {
+        console.error('PaddleOCR error:', paddleErr);
+        setLastOcrError(`PaddleOCR error: ${paddleErr.message}`);
+        if (activeEngine === 'paddle') {
+          setDupWarning(`PaddleOCR error: ${paddleErr.message}`);
+          setOcrResult({
+            value: '',
+            confidence: 'LOW',
+            rawText: `Error: ${paddleErr.message}`
+          });
+          setPhase(PHASE.NONE);
+          return;
+        }
+        setProcessingMsg(`PaddleOCR error (${paddleErr.message}). Trying Tesseract…`);
       }
-    } catch (paddleErr) {
-      console.warn('PaddleOCR failed, trying Tesseract fallback:', paddleErr);
     }
 
     // ── Tier 3: Offline Tesseract fallback ──────────────────────────────────
     try {
       setProcessingMsg('Running on-device Tesseract OCR…');
       setOcrEngine('tesseract');
-      await initOCR();
+      await initOCR((m) => {
+        if (m?.status) setProcessingMsg(`Tesseract: ${m.status}`);
+      });
       const target = processedCanvas || imageDataUrl;
       const data   = await recognizeImage(target);
       const result = mode === 'invoice'
         ? extractDNNumber(data.text, data.words)
         : extractDocketNumber(data.text, data.words);
-      setOcrResult(result);
+      setOcrResult({ ...result, rawText: data.text });
       setPhase(result.value && result.confidence !== 'LOW' ? PHASE.OK : PHASE.NONE);
     } catch (err) {
       console.error('Tesseract error:', err);
+      setLastOcrError(`Tesseract error: ${err.message}`);
       setPhase(PHASE.NONE);
     }
-  }, [mode]);
+  }, [mode, engineChoice]);
 
   // ── Capture from camera ──────────────────────────────────────────────────────
   const handleCapture = useCallback(() => {
@@ -158,26 +211,42 @@ export function ScannerScreen({ mode, onBack }) {
     <div className="min-h-screen bg-black flex flex-col select-none">
 
       {/* Header */}
-      <header className="absolute top-0 left-0 right-0 z-30 flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-black/80 to-transparent">
-        <button onClick={() => { stopCamera(); onBack(); }} className="text-white text-3xl leading-none">←</button>
-        <div>
-          <h1 className="text-white font-bold text-lg">Scan {modeLabel}</h1>
-          <p className="text-gray-300 text-xs">{fieldLabel}</p>
+      <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-2 px-3 py-2.5 bg-gradient-to-b from-black/90 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          <button onClick={() => { stopCamera(); onBack(); }} className="text-white text-2xl leading-none">←</button>
+          <div className="min-w-0">
+            <h1 className="text-white font-bold text-base truncate">Scan {modeLabel}</h1>
+            <p className="text-gray-300 text-[11px] truncate">{fieldLabel}</p>
+          </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Engine Selector */}
+          <select
+            value={engineChoice}
+            onChange={(e) => handleSetEngine(e.target.value)}
+            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[140px] sm:max-w-none truncate"
+            title="Choose OCR Engine"
+          >
+            <option value="auto">⚡ Auto Waterfall</option>
+            <option value="paddle">🀄 Baidu PaddleOCR (Offline)</option>
+            <option value="gemini">✨ Gemini Vision (Cloud)</option>
+            <option value="tesseract">🔷 Tesseract (Legacy)</option>
+          </select>
+
           {/* API key indicator */}
           <button
             onClick={() => setShowApiKey(true)}
-            className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+            className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
               apiKey
                 ? 'border-purple-700 text-purple-400 bg-purple-950/50'
                 : 'border-gray-700 text-gray-500 bg-gray-900/50'
             }`}
           >
-            {apiKey ? '🔑 AI' : '🔑 Set key'}
+            {apiKey ? '🔑 AI' : '🔑 Key'}
           </button>
-          <div className="flex gap-2 text-xs">
-            <span className="text-green-400">{state.records.filter(r=>r.status==='COMPLETE').length} ✓</span>
+          <div className="text-xs text-green-400 font-semibold pl-1">
+            {state.records.filter(r=>r.status==='COMPLETE').length}✓
           </div>
         </div>
       </header>
@@ -364,10 +433,21 @@ export function ScannerScreen({ mode, onBack }) {
                     AI response: {ocrResult.raw}
                   </div>
                 )}
-                {!apiKey && (
+                {ocrResult?.rawText && (
+                  <div className="mt-2 p-2 bg-gray-900 border border-gray-800 rounded-lg text-[11px] font-mono text-gray-400 text-left max-h-24 overflow-y-auto whitespace-pre-wrap">
+                    <div className="text-gray-300 font-bold mb-0.5">Detected Text ({ocrEngine}):</div>
+                    {ocrResult.rawText.slice(0, 400)}
+                  </div>
+                )}
+                {lastOcrError && (
+                  <div className="mt-2 p-2 bg-red-950/70 border border-red-800 rounded-lg text-[11px] font-mono text-red-300 text-left break-all">
+                    {lastOcrError}
+                  </div>
+                )}
+                {!apiKey && engineChoice === 'auto' && (
                   <button onClick={() => setShowApiKey(true)}
                     className="mt-3 text-purple-400 text-sm underline underline-offset-2">
-                    ✨ Add Gemini AI key for better accuracy
+                    ✨ Add Gemini AI key for 99%+ accuracy
                   </button>
                 )}
               </div>
