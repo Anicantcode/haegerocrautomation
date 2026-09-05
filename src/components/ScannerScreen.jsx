@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp, ACTIONS, isDuplicateDN, isDuplicateDocket } from '../context/AppContext.jsx';
 import { useCamera } from '../hooks/useCamera.js';
 import { extractWithGemini, loadApiKey } from '../ocr/geminiOCR.js';
@@ -6,6 +6,7 @@ import { recognizeWithPaddle } from '../ocr/paddleProcessor.js';
 import { initOCR, recognizeImage } from '../ocr/ocrProcessor.js';
 import { extractDNNumber } from '../ocr/invoiceExtractor.js';
 import { extractDocketNumber } from '../ocr/docketExtractor.js';
+import { scanBarcode } from '../ocr/barcodeScanner.js';
 import { ManualEntryDialog } from './ManualEntryDialog.jsx';
 import { ApiKeyModal } from './ApiKeyModal.jsx';
 
@@ -43,12 +44,70 @@ export function ScannerScreen({ mode, onBack }) {
   const [savedBanner,   setSavedBanner]    = useState('');
   const [dupWarning,    setDupWarning]     = useState('');
   const [isCapturing,   setIsCapturing]    = useState(false);
+  const [autoBarcode,   setAutoBarcode]    = useState(() => localStorage.getItem('haeger_auto_barcode') !== 'false');
+  const scanningBarcodeRef = useRef(false);
 
   const isInvoice  = mode === 'invoice';
   const modeLabel  = isInvoice ? 'Invoice' : 'Docket';
   const fieldLabel = isInvoice ? 'DN No.'  : 'Docket / Consignment No.';
 
   useEffect(() => { startCamera(); return () => stopCamera(); }, []); // eslint-disable-line
+
+  // ── Real-Time Camera Barcode Auto-Detection (Instant Barcode Scan) ───────────
+  useEffect(() => {
+    if (phase !== PHASE.PREVIEW || !isReady || !autoBarcode || camError) return;
+    let active = true;
+
+    const interval = setInterval(async () => {
+      if (!active || scanningBarcodeRef.current) return;
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) return;
+
+      scanningBarcodeRef.current = true;
+      try {
+        const found = await scanBarcode(video);
+        if (found && found.value && active) {
+          const rawCandidate = found.value.replace(/[\s\-\.\#\:\/]/g, '');
+          if (rawCandidate.length >= 4) {
+            // Check for duplicates
+            const isDup = mode === 'invoice'
+              ? isDuplicateDN(rawCandidate, state.records)
+              : isDuplicateDocket(rawCandidate, state.records);
+
+            if (isDup) {
+              setDupWarning(`⚠️ Barcode ${rawCandidate} already scanned.`);
+              setTimeout(() => setDupWarning(''), 3500);
+            } else {
+              // Capture the current camera frame for the preview background
+              const frame = captureFrame();
+              if (frame?.previewUrl) {
+                setPreviewUrl(frame.previewUrl);
+              }
+              setOcrEngine('barcode');
+              setOcrResult({
+                value: rawCandidate,
+                confidence: 'HIGH',
+                format: found.format || 'Barcode',
+                source: found.source || 'scanner'
+              });
+              playBeep();
+              vibrate();
+              setPhase(PHASE.OK);
+            }
+          }
+        }
+      } catch (_) {
+        // frame decode pass
+      } finally {
+        scanningBarcodeRef.current = false;
+      }
+    }, 280);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [phase, isReady, autoBarcode, camError, mode, state.records, captureFrame]);
 
   const handleSetEngine = (choice) => {
     setEngineChoice(choice);
@@ -75,17 +134,45 @@ export function ScannerScreen({ mode, onBack }) {
   }, [mode, state.records, dispatch]);
 
   // ── Core OCR processing function (works for both camera and file upload) ──
-  const handleProcessImage = useCallback(async (imageDataUrl, processedCanvas = null) => {
+  const handleProcessImage = useCallback(async (imageDataUrl, processedCanvas = null, options = {}) => {
     if (!imageDataUrl) return;
+    const { forceAI = false } = options;
 
     setPreviewUrl(imageDataUrl);
     setPhase(PHASE.PROCESSING);
     setDupWarning('');
     setLastOcrError('');
-    setProcessingMsg(`Analyzing ${modeLabel} photo…`);
 
     // Give browser UI thread a 100ms yield to render the loading animations before any synchronous OCR work starts
     await new Promise(resolve => setTimeout(resolve, 100));
+
+    // ── Tier 0: Instant Barcode Check on Captured Photo (unless user requested AI OCR) ──
+    if (!forceAI && autoBarcode) {
+      setProcessingMsg(`Checking for barcode in ${modeLabel} photo…`);
+      try {
+        const barcode = await scanBarcode(processedCanvas || imageDataUrl);
+        if (barcode && barcode.value) {
+          const rawCandidate = barcode.value.replace(/[\s\-\.\#\:\/]/g, '');
+          if (rawCandidate.length >= 4) {
+            setOcrEngine('barcode');
+            setOcrResult({
+              value: rawCandidate,
+              confidence: 'HIGH',
+              format: barcode.format || 'Barcode',
+              source: barcode.source || 'scanner'
+            });
+            playBeep();
+            vibrate();
+            setPhase(PHASE.OK);
+            return;
+          }
+        }
+      } catch (barcodeErr) {
+        console.warn('Capture barcode scan error:', barcodeErr);
+      }
+    }
+
+    setProcessingMsg(`Analyzing ${modeLabel} photo with AI…`);
 
     const key = loadApiKey();
     const activeEngine = engineChoice;
@@ -191,7 +278,7 @@ export function ScannerScreen({ mode, onBack }) {
       setLastOcrError(`Tesseract error: ${err.message}`);
       setPhase(PHASE.NONE);
     }
-  }, [mode, engineChoice, modeLabel, fieldLabel]);
+  }, [mode, engineChoice, modeLabel, fieldLabel, autoBarcode]);
 
   // ── Capture from camera ──────────────────────────────────────────────────────
   const handleCapture = useCallback(async () => {
@@ -219,7 +306,9 @@ export function ScannerScreen({ mode, onBack }) {
     saveValue(value);
   };
 
-  const engineBadge = ocrEngine === 'gemini'
+  const engineBadge = ocrEngine === 'barcode'
+    ? { label: `⚡ Barcode (${ocrResult?.format || '1D'})`, cls: 'bg-emerald-950 border border-emerald-600 text-emerald-300' }
+    : ocrEngine === 'gemini'
     ? { label: '✨ Gemini AI', cls: 'bg-purple-900 text-purple-300' }
     : ocrEngine === 'paddle'
     ? { label: '🀄 PaddleOCR v4', cls: 'bg-blue-900 text-blue-300' }
@@ -239,11 +328,28 @@ export function ScannerScreen({ mode, onBack }) {
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Barcode live scan toggle */}
+          <button
+            onClick={() => setAutoBarcode(prev => {
+              const next = !prev;
+              localStorage.setItem('haeger_auto_barcode', next ? 'true' : 'false');
+              return next;
+            })}
+            className={`text-[11px] font-semibold px-2 py-1 rounded-lg border flex items-center gap-1 transition-all ${
+              autoBarcode
+                ? 'bg-emerald-950/80 border-emerald-600 text-emerald-300'
+                : 'bg-gray-900 border-gray-700 text-gray-400'
+            }`}
+            title={autoBarcode ? "Live barcode scanning is ON (Tap to turn OFF)" : "Live barcode scanning is OFF (Tap to turn ON)"}
+          >
+            <span>⚡</span> {autoBarcode ? 'Barcode ON' : 'Barcode OFF'}
+          </button>
+
           {/* Engine Selector */}
           <select
             value={engineChoice}
             onChange={(e) => handleSetEngine(e.target.value)}
-            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[140px] sm:max-w-none truncate"
+            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[130px] sm:max-w-none truncate"
             title="Choose OCR Engine"
           >
             <option value="auto">⚡ Auto Waterfall</option>
@@ -325,6 +431,20 @@ export function ScannerScreen({ mode, onBack }) {
                     <div className="w-6 h-6 border-b-2 border-r-2 border-yellow-400 rounded-br-lg" />
                   </div>
                 </div>
+
+                {/* Barcode Alignment Laser Guide */}
+                {autoBarcode && isReady && (
+                  <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center z-10">
+                    <div className={`w-full h-0.5 opacity-75 ${
+                      isInvoice
+                        ? 'bg-cyan-400 shadow-[0_0_10px_#38bdf8]'
+                        : 'bg-fuchsia-400 shadow-[0_0_10px_#d946ef]'
+                    }`} />
+                    <span className="text-[10px] text-gray-200 bg-black/75 backdrop-blur-md px-3 py-1 rounded-full mt-2 border border-gray-700/80 shadow flex items-center gap-1.5">
+                      <span className="animate-pulse">⚡</span> Aim barcode here · or tap shutter for AI OCR
+                    </span>
+                  </div>
+                )}
 
                 {/* Banners */}
                 {savedBanner && (
@@ -531,9 +651,20 @@ export function ScannerScreen({ mode, onBack }) {
 
               <div className="flex flex-col gap-3">
                 <button onClick={() => saveValue(ocrResult.value)}
-                  className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl text-lg transition-colors">
+                  className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl text-lg transition-colors shadow-lg active:scale-98">
                   ✓ Save this number
                 </button>
+
+                {/* If scanned via Barcode, offer instant 1-tap "Wrong number? Scan with AI OCR" */}
+                {ocrEngine === 'barcode' && (
+                  <button
+                    onClick={() => handleProcessImage(previewUrl, null, { forceAI: true })}
+                    className="w-full bg-gradient-to-r from-purple-800 via-indigo-800 to-blue-800 hover:from-purple-700 hover:to-blue-700 text-white font-semibold py-3.5 rounded-2xl text-sm border border-purple-500/50 flex items-center justify-center gap-2 transition-all shadow-md active:scale-98"
+                  >
+                    <span>🤖</span> Wrong number? Scan with AI Vision OCR
+                  </button>
+                )}
+
                 <div className="flex gap-3">
                   <button onClick={() => { setEditValue(ocrResult.value); setShowManual(true); }}
                     className="flex-1 bg-blue-700 hover:bg-blue-600 text-white font-semibold py-3 rounded-xl transition-colors">

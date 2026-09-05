@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "onnxruntime-web": "^1.29.0",
     "ppu-paddle-ocr": "^6.4.3",
     "react": "^18.3.1",
