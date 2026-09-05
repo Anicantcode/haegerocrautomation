@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useApp, ACTIONS, isDuplicateDN, isDuplicateDocket } from '../context/AppContext.jsx';
 import { useCamera } from '../hooks/useCamera.js';
 import { extractWithGemini, loadApiKey } from '../ocr/geminiOCR.js';
+import { recognizeWithPaddle } from '../ocr/paddleProcessor.js';
 import { initOCR, recognizeImage } from '../ocr/ocrProcessor.js';
 import { extractDNNumber } from '../ocr/invoiceExtractor.js';
 import { extractDocketNumber } from '../ocr/docketExtractor.js';
@@ -31,7 +32,7 @@ export function ScannerScreen({ mode, onBack }) {
   const [phase,         setPhase]         = useState(PHASE.PREVIEW);
   const [previewUrl,    setPreviewUrl]     = useState(null);
   const [ocrResult,     setOcrResult]      = useState(null);
-  const [ocrEngine,     setOcrEngine]      = useState('');   // 'gemini' | 'tesseract'
+  const [ocrEngine,     setOcrEngine]      = useState('');   // 'gemini' | 'paddle' | 'tesseract'
   const [processingMsg, setProcessingMsg]  = useState('');
   const [editValue,     setEditValue]      = useState(null);
   const [showManual,    setShowManual]     = useState(false);
@@ -74,7 +75,7 @@ export function ScannerScreen({ mode, onBack }) {
 
     const key = loadApiKey();
 
-    // ── Primary Engine: Gemini AI ───────────────────────────────────────────
+    // ── Tier 1: Gemini AI Vision ───────────────────────────────────────────
     if (key) {
       try {
         setProcessingMsg('Analyzing with Gemini AI Vision…');
@@ -83,21 +84,35 @@ export function ScannerScreen({ mode, onBack }) {
         setOcrResult(result);
         if (result && result.value) {
           setPhase(PHASE.OK);
-        } else {
-          setPhase(PHASE.NONE);
+          return;
         }
-        return;
       } catch (err) {
         console.error('Gemini OCR error:', err);
         setDupWarning(`Gemini AI Error: ${err.message}`);
-        // If Gemini failed due to invalid key or error, allow retry
-        setProcessingMsg(`Gemini AI error: ${err.message}. Running on-device OCR…`);
+        setProcessingMsg(`Gemini AI error (${err.message}). Trying Baidu PaddleOCR v4…`);
       }
     }
 
-    // ── Secondary Engine: Offline Tesseract (only if no key or error) ────────
+    // ── Tier 2: In-Browser Baidu PaddleOCR v4 (Offline AI) ─────────────────
     try {
-      setProcessingMsg('Running on-device OCR…');
+      setProcessingMsg('Reading with Baidu PaddleOCR v4…');
+      setOcrEngine('paddle');
+      const data = await recognizeWithPaddle(imageDataUrl, (msg) => setProcessingMsg(msg));
+      const result = mode === 'invoice'
+        ? extractDNNumber(data.text, data.words)
+        : extractDocketNumber(data.text, data.words);
+      if (result && result.value && result.confidence !== 'LOW') {
+        setOcrResult(result);
+        setPhase(PHASE.OK);
+        return;
+      }
+    } catch (paddleErr) {
+      console.warn('PaddleOCR failed, trying Tesseract fallback:', paddleErr);
+    }
+
+    // ── Tier 3: Offline Tesseract fallback ──────────────────────────────────
+    try {
+      setProcessingMsg('Running on-device Tesseract OCR…');
       setOcrEngine('tesseract');
       await initOCR();
       const target = processedCanvas || imageDataUrl;
@@ -135,7 +150,9 @@ export function ScannerScreen({ mode, onBack }) {
 
   const engineBadge = ocrEngine === 'gemini'
     ? { label: '✨ Gemini AI', cls: 'bg-purple-900 text-purple-300' }
-    : { label: '🔷 On-device', cls: 'bg-gray-800 text-gray-300' };
+    : ocrEngine === 'paddle'
+    ? { label: '🀄 PaddleOCR v4', cls: 'bg-blue-900 text-blue-300' }
+    : { label: '🔷 Tesseract', cls: 'bg-gray-800 text-gray-300' };
 
   return (
     <div className="min-h-screen bg-black flex flex-col select-none">
