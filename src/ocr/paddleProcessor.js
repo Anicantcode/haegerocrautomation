@@ -56,7 +56,7 @@ export async function initPaddleOCR(onProgress) {
 
   initPromise = (async () => {
     try {
-      onProgress?.('Loading bundled Baidu PaddleOCR v4 models (~6MB)...');
+      onProgress?.('Initializing offline neural engine…');
       const { PaddleOcrService } = await import('ppu-paddle-ocr/web');
 
       const base = import.meta.env.BASE_URL || '/';
@@ -95,10 +95,10 @@ export async function initPaddleOCR(onProgress) {
 export async function recognizeWithPaddle(canvasOrDataUrl, onProgress) {
   const service = await initPaddleOCR(onProgress);
 
-  onProgress?.('Preparing image for Baidu PP-OCR...');
+  onProgress?.('Optimizing image for reading…');
   const canvas = await toCanvas(canvasOrDataUrl);
 
-  onProgress?.('Running PaddleOCR detection & recognition...');
+  onProgress?.('Detecting numbers and text…');
   const result = await service.recognize(canvas);
 
   // Flatten lines for extractors

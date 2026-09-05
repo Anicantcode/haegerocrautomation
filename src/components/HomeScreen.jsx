@@ -49,10 +49,10 @@ export function HomeScreen({ onNavigate }) {
               ? 'bg-emerald-950/80 border-emerald-700/60 text-emerald-300 hover:bg-emerald-900/80'
               : 'bg-amber-950/80 border-amber-700/60 text-amber-300 hover:bg-amber-900/80 animate-pulse'
           }`}
-          title="Configure Gemini API Key"
+          title="Configure API Key"
         >
           <span>🔑</span>
-          <span>{apiKey ? 'Gemini AI Active' : 'Set API Key'}</span>
+          <span>{apiKey ? 'Cloud AI Active' : 'Set API Key'}</span>
         </button>
       </header>
 
@@ -121,10 +121,7 @@ export function HomeScreen({ onNavigate }) {
         </button>
       </div>
 
-      {/* Footer */}
-      <footer className="text-center text-gray-600 text-xs py-4">
-        Powered by Gemini 2.0 Flash Vision · Instant &amp; Accurate
-      </footer>
+
 
       {showClear && (
         <ClearSessionDialog onConfirm={handleClear} onCancel={() => setShowClear(false)} />

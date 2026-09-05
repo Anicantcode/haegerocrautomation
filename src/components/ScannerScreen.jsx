@@ -177,10 +177,10 @@ export function ScannerScreen({ mode, onBack }) {
     const key = loadApiKey();
     const activeEngine = engineChoice;
 
-    // ── Tier 1: Gemini AI Vision (if selected or auto with key) ───────────
+    // ── Tier 1: Cloud AI Vision (if selected or auto with key) ───────────
     if ((activeEngine === 'gemini' || activeEngine === 'auto') && key) {
       try {
-        setProcessingMsg(`Connecting to Gemini AI Vision for ${modeLabel}…`);
+        setProcessingMsg(`Connecting to Cloud AI for ${modeLabel}…`);
         setOcrEngine('gemini');
         await new Promise(resolve => setTimeout(resolve, 40));
         const result = await extractWithGemini(imageDataUrl, mode, key);
@@ -194,26 +194,26 @@ export function ScannerScreen({ mode, onBack }) {
           return;
         }
       } catch (err) {
-        console.error('Gemini OCR error:', err);
-        setLastOcrError(`Gemini: ${err.message}`);
+        console.error('Cloud AI OCR error:', err);
+        setLastOcrError(`Cloud AI: ${err.message}`);
         if (activeEngine === 'gemini') {
-          setDupWarning(`Gemini AI Error: ${err.message}`);
+          setDupWarning(`Cloud AI Error: ${err.message}`);
           setPhase(PHASE.NONE);
           return;
         }
-        setProcessingMsg(`Gemini unavailable. Initializing Baidu PaddleOCR for ${modeLabel}…`);
+        setProcessingMsg(`Cloud AI unavailable. Initializing offline neural engine for ${modeLabel}…`);
       }
     } else if (activeEngine === 'gemini' && !key) {
       setShowApiKey(true);
       setPhase(PHASE.PREVIEW);
-      setDupWarning('Please enter your Gemini API key first.');
+      setDupWarning('Please configure your API key first.');
       return;
     }
 
-    // ── Tier 2: In-Browser Baidu PaddleOCR v4 (Offline AI) ─────────────────
+    // ── Tier 2: In-Browser Neural Engine (Offline AI) ───────────────────────
     if (activeEngine === 'paddle' || activeEngine === 'auto') {
       try {
-        setProcessingMsg(`Starting Baidu PaddleOCR v4 for ${modeLabel}…`);
+        setProcessingMsg(`Starting offline engine for ${modeLabel}…`);
         setOcrEngine('paddle');
         await new Promise(resolve => setTimeout(resolve, 40));
         const target = processedCanvas || imageDataUrl;
@@ -235,16 +235,16 @@ export function ScannerScreen({ mode, onBack }) {
           setOcrResult({
             value: result?.value || '',
             confidence: result?.confidence || 'LOW',
-            rawText: data.text || 'No text recognized by PaddleOCR'
+            rawText: data.text || 'No text recognized'
           });
           setPhase(result?.value ? PHASE.OK : PHASE.NONE);
           return;
         }
       } catch (paddleErr) {
-        console.error('PaddleOCR error:', paddleErr);
-        setLastOcrError(`PaddleOCR error: ${paddleErr.message}`);
+        console.error('Offline OCR error:', paddleErr);
+        setLastOcrError(`Offline OCR error: ${paddleErr.message}`);
         if (activeEngine === 'paddle') {
-          setDupWarning(`PaddleOCR error: ${paddleErr.message}`);
+          setDupWarning(`Offline OCR error: ${paddleErr.message}`);
           setOcrResult({
             value: '',
             confidence: 'LOW',
@@ -253,13 +253,13 @@ export function ScannerScreen({ mode, onBack }) {
           setPhase(PHASE.NONE);
           return;
         }
-        setProcessingMsg(`PaddleOCR error. Running on-device OCR for ${modeLabel}…`);
+        setProcessingMsg(`Switching to secondary OCR engine for ${modeLabel}…`);
       }
     }
 
-    // ── Tier 3: Offline Tesseract fallback ──────────────────────────────────
+    // ── Tier 3: Offline standard fallback ──────────────────────────────────
     try {
-      setProcessingMsg(`Running on-device OCR for ${modeLabel}…`);
+      setProcessingMsg(`Running standard OCR for ${modeLabel}…`);
       setOcrEngine('tesseract');
       await new Promise(resolve => setTimeout(resolve, 40));
       await initOCR((m) => {
@@ -309,10 +309,10 @@ export function ScannerScreen({ mode, onBack }) {
   const engineBadge = ocrEngine === 'barcode'
     ? { label: `⚡ Barcode (${ocrResult?.format || '1D'})`, cls: 'bg-emerald-950 border border-emerald-600 text-emerald-300' }
     : ocrEngine === 'gemini'
-    ? { label: '✨ Gemini AI', cls: 'bg-purple-900 text-purple-300' }
+    ? { label: '✨ Cloud AI', cls: 'bg-purple-900 text-purple-300' }
     : ocrEngine === 'paddle'
-    ? { label: '🀄 PaddleOCR v4', cls: 'bg-blue-900 text-blue-300' }
-    : { label: '🔷 Tesseract', cls: 'bg-gray-800 text-gray-300' };
+    ? { label: '⚡ Smart OCR', cls: 'bg-blue-900 text-blue-300' }
+    : { label: '🔷 Standard OCR', cls: 'bg-gray-800 text-gray-300' };
 
   return (
     <div className="min-h-screen bg-black flex flex-col select-none">
@@ -349,13 +349,13 @@ export function ScannerScreen({ mode, onBack }) {
           <select
             value={engineChoice}
             onChange={(e) => handleSetEngine(e.target.value)}
-            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[130px] sm:max-w-none truncate"
-            title="Choose OCR Engine"
+            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[110px] sm:max-w-none truncate"
+            title="Scan Mode"
           >
-            <option value="auto">⚡ Auto Waterfall</option>
-            <option value="paddle">🀄 Baidu PaddleOCR (Offline)</option>
-            <option value="gemini">✨ Gemini Vision (Cloud)</option>
-            <option value="tesseract">🔷 Tesseract (Legacy)</option>
+            <option value="auto">⚡ Auto Scan</option>
+            <option value="paddle">⚡ Offline Fast</option>
+            <option value="gemini">✨ Cloud AI</option>
+            <option value="tesseract">🔷 Standard OCR</option>
           </select>
 
           {/* API key indicator */}
@@ -456,7 +456,7 @@ export function ScannerScreen({ mode, onBack }) {
                 <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center pb-6 pt-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
                   {/* Engine label */}
                   <p className="text-xs mb-3 px-3 py-1 rounded-full border border-gray-700 bg-gray-900/80 text-gray-300 backdrop-blur-sm">
-                    {apiKey ? '✨ Gemini AI Vision Active' : '🔷 Local OCR · Tap 🔑 to enable AI'}
+                    {apiKey ? '✨ Cloud AI Vision Active' : '⚡ Offline OCR Active · Tap 🔑 for Cloud AI'}
                   </p>
 
                   {/* Shutter row with Upload button */}
@@ -693,7 +693,7 @@ export function ScannerScreen({ mode, onBack }) {
                 )}
                 {ocrResult?.rawText && (
                   <div className="mt-2 p-2 bg-gray-900 border border-gray-800 rounded-lg text-[11px] font-mono text-gray-400 text-left max-h-24 overflow-y-auto whitespace-pre-wrap">
-                    <div className="text-gray-300 font-bold mb-0.5">Detected Text ({ocrEngine}):</div>
+                    <div className="text-gray-300 font-bold mb-0.5">Detected Text:</div>
                     {ocrResult.rawText.slice(0, 400)}
                   </div>
                 )}
@@ -705,7 +705,7 @@ export function ScannerScreen({ mode, onBack }) {
                 {!apiKey && engineChoice === 'auto' && (
                   <button onClick={() => setShowApiKey(true)}
                     className="mt-3 text-purple-400 text-sm underline underline-offset-2">
-                    ✨ Add Gemini AI key for 99%+ accuracy
+                    ✨ Add API key for highest accuracy
                   </button>
                 )}
               </div>
