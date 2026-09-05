@@ -1,8 +1,4 @@
-/**
- * geminiOCR.js
- * Uses Google Gemini Vision API to extract specific fields from document photos.
- * Much more accurate than on-device Tesseract for real-world document photos.
- */
+import { validateDocketNumber } from './numberValidator.js';
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -21,15 +17,22 @@ Output valid JSON with the exact key "dnNumber":
 }
 If no DN number is present, return {"dnNumber": ""}.`,
 
-  docket: `You are an expert OCR vision system analyzing a printed shipping docket / consignment note.
-Your task: Find the Docket Number / Consignment Note Number / LR Number.
-Look for "Docket Number", "Docket No.", "Consignment No.", or the code printed near/under the barcode (for example: 4034715112).
+  docket: `You are an expert OCR vision system analyzing a printed logistics shipping docket, lorry receipt (LR), or consignment note.
+Your task: Extract the Docket Number / Consignment Note Number / LR Number / Waybill Number.
+Look for labels like:
+- "Docket No.", "Docket Number", "Dkt No."
+- "LR No.", "L.R. No.", "Lorry Receipt No."
+- "Consignment No.", "Consignment Note No.", "C/N No."
+- "GR No.", "G.R. No.", "GC No."
+- "AWB No.", "Airway Bill No.", "Waybill No."
+- Or the large prominent barcode number printed on the document (e.g. 4034715112 or DT5118).
+Do not extract phone numbers, dates, or GSTINs.
 
 Output valid JSON with the exact key "docketNumber":
 {
   "docketNumber": "4034715112"
 }
-If no Docket number is present, return {"docketNumber": ""}.`,
+If no Docket number is found, return {"docketNumber": ""}.`,
 };
 
 // Cached discovered models for current session
@@ -153,18 +156,50 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
       try {
         const cleanJson = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
         const parsed = JSON.parse(cleanJson);
-        extracted = mode === 'invoice'
-          ? (parsed.dnNumber || parsed.dn_number || parsed.dn || parsed.number || '')
-          : (parsed.docketNumber || parsed.docket_number || parsed.docket || parsed.number || '');
+        if (mode === 'invoice') {
+          extracted = parsed.dnNumber || parsed.dn_number || parsed.dn || parsed.deliveryNoteNumber || parsed.number || '';
+        } else {
+          extracted = parsed.docketNumber || parsed.docket_number || parsed.docket || parsed.docketNo || parsed.docket_no ||
+            parsed.lrNumber || parsed.lr_number || parsed.lrNo || parsed.lr_no ||
+            parsed.consignmentNumber || parsed.consignment_number || parsed.consignmentNo || parsed.consignment_no ||
+            parsed.consignmentNoteNumber || parsed.consignment_note_number ||
+            parsed.waybill || parsed.waybillNumber || parsed.awb || parsed.awbNumber || parsed.trackingNumber || parsed.tracking_number || parsed.number || '';
+
+          if (!extracted && typeof parsed === 'object') {
+            for (const v of Object.values(parsed)) {
+              if (typeof v === 'string' || typeof v === 'number') {
+                const val = validateDocketNumber(String(v).trim());
+                if (val.confidence !== 'LOW') {
+                  extracted = val.value;
+                  break;
+                }
+              }
+            }
+          }
+        }
       } catch (_) {
         // Look for JSON object in text
         const jsonMatch = raw.match(/\{[\s\S]*?\}/);
         if (jsonMatch) {
           try {
             const parsed = JSON.parse(jsonMatch[0]);
-            extracted = mode === 'invoice'
-              ? (parsed.dnNumber || parsed.dn_number || parsed.number || '')
-              : (parsed.docketNumber || parsed.docket_number || parsed.number || '');
+            if (mode === 'invoice') {
+              extracted = parsed.dnNumber || parsed.dn_number || parsed.number || '';
+            } else {
+              extracted = parsed.docketNumber || parsed.docket_number || parsed.docket || parsed.docketNo || parsed.docket_no ||
+                parsed.lrNumber || parsed.lrNo || parsed.consignmentNumber || parsed.consignment_no || parsed.waybill || parsed.awb || parsed.number || '';
+              if (!extracted && typeof parsed === 'object') {
+                for (const v of Object.values(parsed)) {
+                  if (typeof v === 'string' || typeof v === 'number') {
+                    const val = validateDocketNumber(String(v).trim());
+                    if (val.confidence !== 'LOW') {
+                      extracted = val.value;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
           } catch (_) {}
         }
       }
@@ -177,7 +212,8 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
           const m = targetText.match(/DN[\s\w.:\-]*?(\d{8,12})/i) || targetText.match(/\b(\d{8,12})\b/);
           if (m) extracted = m[1];
         } else {
-          const m = targetText.match(/(?:Docket|Consignment)[\s\w.:\-]*?([A-Za-z0-9]{6,20})/i) || targetText.match(/\b([A-Za-z0-9]{6,20})\b/);
+          const m = targetText.match(/(?:Docket|Consignment|LR|L\.R\.|GR|GC|Waybill|AWB)[\s\w.:\-#]*?([A-Za-z0-9\-]{4,22})/i)
+            || targetText.match(/\b([A-Za-z0-9\-]*\d{2,}[A-Za-z0-9\-]*)\b/);
           if (m) extracted = m[1];
         }
       }
@@ -193,7 +229,7 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
 
       const isHighConf = mode === 'invoice'
         ? /^\d{8,12}$/.test(cleaned)
-        : /^[A-Za-z0-9]{6,22}$/.test(cleaned);
+        : /^[A-Za-z0-9]{4,22}$/.test(cleaned) && /\d{2,}/.test(cleaned);
 
       return {
         value:      cleaned,
