@@ -2,16 +2,17 @@ import { useState } from 'react';
 import { useApp, getStats, ACTIONS } from '../context/AppContext.jsx';
 import { ClearSessionDialog } from './ClearSessionDialog.jsx';
 import { ApiKeyModal } from './ApiKeyModal.jsx';
-import { exportToExcel } from '../export/excelExporter.js';
+import { exportToExcel, shareExcelFile } from '../export/excelExporter.js';
 import { loadApiKey } from '../ocr/geminiOCR.js';
 
 export function HomeScreen({ onNavigate }) {
   const { state, dispatch } = useApp();
   const stats = getStats(state.records);
-  const [showClear,  setShowClear]  = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [apiKey,     setApiKey]     = useState(loadApiKey);
-  const [exportMsg,  setExportMsg]  = useState('');
+  const [showClear,    setShowClear]    = useState(false);
+  const [showApiKey,   setShowApiKey]   = useState(false);
+  const [apiKey,       setApiKey]       = useState(loadApiKey);
+  const [exportMsg,    setExportMsg]    = useState('');
+  const [lastExported, setLastExported] = useState(null);
 
   const handleExport = () => {
     try {
@@ -20,17 +21,36 @@ export function HomeScreen({ onNavigate }) {
         setTimeout(() => setExportMsg(''), 3000);
         return;
       }
-      const filename = exportToExcel(state.records);
-      setExportMsg(`✅ Exported: ${filename}`);
-      setTimeout(() => setExportMsg(''), 5000);
+      const fileData = exportToExcel(state.records);
+      setLastExported(fileData);
+      setExportMsg(`✅ File ready: ${fileData.filename}`);
+      setTimeout(() => setExportMsg(''), 6000);
     } catch (err) {
       setExportMsg(`❌ ${err.message}`);
       setTimeout(() => setExportMsg(''), 4000);
     }
   };
 
+  const handleShare = async () => {
+    try {
+      if (!lastExported) return;
+      const res = await shareExcelFile(lastExported);
+      if (res.shared) {
+        setExportMsg('✅ Shared successfully!');
+        setTimeout(() => setExportMsg(''), 4000);
+      } else if (res.downloaded) {
+        setExportMsg('📥 File downloaded to your device.');
+        setTimeout(() => setExportMsg(''), 4000);
+      }
+    } catch (err) {
+      setExportMsg(`❌ Share failed: ${err.message}`);
+      setTimeout(() => setExportMsg(''), 4000);
+    }
+  };
+
   const handleClear = () => {
     dispatch({ type: ACTIONS.CLEAR_SESSION });
+    setLastExported(null);
     setShowClear(false);
   };
 
@@ -104,6 +124,20 @@ export function HomeScreen({ onNavigate }) {
           <span className="text-2xl">📊</span>
           <span>Export to Excel</span>
         </button>
+
+        {/* Share File Button (appears below Export to Excel after file is made) */}
+        {lastExported && (
+          <button
+            className="btn-primary bg-emerald-600 hover:bg-emerald-500 text-white shadow-xl border border-emerald-400/40 active:scale-98 transition-all"
+            onClick={handleShare}
+          >
+            <span className="text-2xl">📤</span>
+            <span>Share File</span>
+            <span className="ml-auto text-emerald-100 text-xs truncate max-w-[130px] font-mono">
+              {lastExported.filename}
+            </span>
+          </button>
+        )}
 
         {exportMsg && (
           <div className="bg-gray-800 rounded-xl px-4 py-3 text-sm text-center text-gray-200 border border-gray-700">

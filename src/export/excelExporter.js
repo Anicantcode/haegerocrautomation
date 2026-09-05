@@ -1,11 +1,11 @@
 import * as XLSX from 'xlsx';
 
 /**
- * Export records to a .xlsx file and trigger browser download.
+ * Creates an Excel workbook and File/Blob object from records.
  * DN No and Docket No are stored as TEXT to prevent Excel from
  * converting long numbers to scientific notation.
  */
-export function exportToExcel(records) {
+export function createExcelFile(records) {
   if (!records || records.length === 0) {
     throw new Error('No records to export.');
   }
@@ -56,6 +56,62 @@ export function exportToExcel(records) {
   const pad = (n) => String(n).padStart(2, '0');
   const filename = `Invoice_Docket_Scan_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.xlsx`;
 
-  XLSX.writeFile(wb, filename);
-  return filename;
+  // Generate binary buffer & File / Blob
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const blob = new Blob([wbout], { type: mimeType });
+  const file = new File([blob], filename, { type: mimeType });
+
+  return { wb, filename, blob, file };
 }
+
+/**
+ * Export records to a .xlsx file and trigger browser download.
+ * Returns { filename, file, blob, wb }.
+ */
+export function exportToExcel(records) {
+  const fileData = createExcelFile(records);
+  XLSX.writeFile(fileData.wb, fileData.filename);
+  return fileData;
+}
+
+/**
+ * Shares an Excel file using the native Web Share API if supported.
+ * Falls back to triggering a download if file sharing is unavailable.
+ */
+export async function shareExcelFile(fileData) {
+  if (!fileData || !fileData.file) {
+    throw new Error('No file available to share.');
+  }
+
+  const { file, filename } = fileData;
+
+  if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: filename,
+        text: 'Invoice & Docket Scanned Records',
+      });
+      return { shared: true };
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        // User dismissed the share sheet
+        return { shared: false, cancelled: true };
+      }
+      throw err;
+    }
+  }
+
+  // Fallback if sharing files is not supported (e.g. desktop Chrome)
+  const url = URL.createObjectURL(fileData.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return { shared: false, downloaded: true };
+}
+
