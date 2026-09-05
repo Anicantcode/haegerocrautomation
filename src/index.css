@@ -47,6 +47,12 @@
 
 .animate-laser-scan {
   position: absolute;
-  animation: laserScan 2.4s ease-in-out infinite;
+  animation: laserScan 2.2s ease-in-out infinite;
+}
+
+.animate-laser-scan-purple {
+  position: absolute;
+  animation: laserScan 2.2s ease-in-out infinite;
+  box-shadow: 0 0 20px #d946ef;
 }
 

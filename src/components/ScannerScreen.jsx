@@ -42,9 +42,11 @@ export function ScannerScreen({ mode, onBack }) {
   const [apiKey,        setApiKey]         = useState(loadApiKey);
   const [savedBanner,   setSavedBanner]    = useState('');
   const [dupWarning,    setDupWarning]     = useState('');
+  const [isCapturing,   setIsCapturing]    = useState(false);
 
-  const modeLabel  = mode === 'invoice' ? 'Invoice' : 'Docket';
-  const fieldLabel = mode === 'invoice' ? 'DN No.'  : 'Consignment Note No.';
+  const isInvoice  = mode === 'invoice';
+  const modeLabel  = isInvoice ? 'Invoice' : 'Docket';
+  const fieldLabel = isInvoice ? 'DN No.'  : 'Docket / Consignment No.';
 
   useEffect(() => { startCamera(); return () => stopCamera(); }, []); // eslint-disable-line
 
@@ -80,6 +82,10 @@ export function ScannerScreen({ mode, onBack }) {
     setPhase(PHASE.PROCESSING);
     setDupWarning('');
     setLastOcrError('');
+    setProcessingMsg(`Analyzing ${modeLabel} photo…`);
+
+    // Give browser UI thread a 100ms yield to render the loading animations before any synchronous OCR work starts
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     const key = loadApiKey();
     const activeEngine = engineChoice;
@@ -87,8 +93,9 @@ export function ScannerScreen({ mode, onBack }) {
     // ── Tier 1: Gemini AI Vision (if selected or auto with key) ───────────
     if ((activeEngine === 'gemini' || activeEngine === 'auto') && key) {
       try {
-        setProcessingMsg('Connecting to Gemini AI Vision…');
+        setProcessingMsg(`Connecting to Gemini AI Vision for ${modeLabel}…`);
         setOcrEngine('gemini');
+        await new Promise(resolve => setTimeout(resolve, 40));
         const result = await extractWithGemini(imageDataUrl, mode, key);
         setProcessingMsg(`Extracting ${fieldLabel}…`);
         setOcrResult(result);
@@ -107,7 +114,7 @@ export function ScannerScreen({ mode, onBack }) {
           setPhase(PHASE.NONE);
           return;
         }
-        setProcessingMsg(`Gemini unavailable (${err.message}). Trying Baidu PaddleOCR…`);
+        setProcessingMsg(`Gemini unavailable. Initializing Baidu PaddleOCR for ${modeLabel}…`);
       }
     } else if (activeEngine === 'gemini' && !key) {
       setShowApiKey(true);
@@ -119,11 +126,12 @@ export function ScannerScreen({ mode, onBack }) {
     // ── Tier 2: In-Browser Baidu PaddleOCR v4 (Offline AI) ─────────────────
     if (activeEngine === 'paddle' || activeEngine === 'auto') {
       try {
-        setProcessingMsg('Starting Baidu PaddleOCR v4…');
+        setProcessingMsg(`Starting Baidu PaddleOCR v4 for ${modeLabel}…`);
         setOcrEngine('paddle');
+        await new Promise(resolve => setTimeout(resolve, 40));
         const target = processedCanvas || imageDataUrl;
         const data = await recognizeWithPaddle(target, (msg) => setProcessingMsg(msg));
-        setProcessingMsg(`Locating ${fieldLabel} in document…`);
+        setProcessingMsg(`Locating ${fieldLabel} in ${modeLabel}…`);
         const result = mode === 'invoice'
           ? extractDNNumber(data.text, data.words)
           : extractDocketNumber(data.text, data.words);
@@ -158,14 +166,15 @@ export function ScannerScreen({ mode, onBack }) {
           setPhase(PHASE.NONE);
           return;
         }
-        setProcessingMsg(`PaddleOCR error (${paddleErr.message}). Trying Tesseract…`);
+        setProcessingMsg(`PaddleOCR error. Running on-device OCR for ${modeLabel}…`);
       }
     }
 
     // ── Tier 3: Offline Tesseract fallback ──────────────────────────────────
     try {
-      setProcessingMsg('Running on-device Tesseract OCR…');
+      setProcessingMsg(`Running on-device OCR for ${modeLabel}…`);
       setOcrEngine('tesseract');
+      await new Promise(resolve => setTimeout(resolve, 40));
       await initOCR((m) => {
         if (m?.status) setProcessingMsg(`Tesseract: ${m.status}`);
       });
@@ -182,14 +191,20 @@ export function ScannerScreen({ mode, onBack }) {
       setLastOcrError(`Tesseract error: ${err.message}`);
       setPhase(PHASE.NONE);
     }
-  }, [mode, engineChoice]);
+  }, [mode, engineChoice, modeLabel, fieldLabel]);
 
   // ── Capture from camera ──────────────────────────────────────────────────────
-  const handleCapture = useCallback(() => {
+  const handleCapture = useCallback(async () => {
+    setIsCapturing(true);
+    setProcessingMsg(`Capturing ${modeLabel}…`);
     const frame = captureFrame();
-    if (!frame) return;
-    handleProcessImage(frame.previewUrl, frame.processedCanvas);
-  }, [captureFrame, handleProcessImage]);
+    if (!frame) {
+      setIsCapturing(false);
+      return;
+    }
+    await handleProcessImage(frame.previewUrl, frame.processedCanvas);
+    setIsCapturing(false);
+  }, [captureFrame, handleProcessImage, modeLabel]);
 
   const handleRetry = () => {
     setPhase(PHASE.PREVIEW);
@@ -279,6 +294,23 @@ export function ScannerScreen({ mode, onBack }) {
                   muted
                 />
 
+                {/* Camera Startup Loading Indicator */}
+                {!isReady && !camError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-10 gap-3">
+                    <div className={`w-12 h-12 border-4 rounded-full animate-spin ${
+                      isInvoice
+                        ? 'border-gray-700 border-t-cyan-400 border-r-blue-500'
+                        : 'border-gray-700 border-t-fuchsia-400 border-r-purple-500'
+                    }`} />
+                    <p className="text-white text-sm font-semibold">
+                      Starting {modeLabel} camera…
+                    </p>
+                    <p className="text-gray-400 text-xs">
+                      Readying video feed
+                    </p>
+                  </div>
+                )}
+
                 {/* Subtle corner framing indicators */}
                 <div className="absolute inset-4 md:inset-8 pointer-events-none border border-white/20 rounded-2xl flex flex-col justify-between p-3">
                   <div className="flex justify-between">
@@ -325,6 +357,8 @@ export function ScannerScreen({ mode, onBack }) {
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) {
+                            setPhase(PHASE.PROCESSING);
+                            setProcessingMsg(`Loading ${modeLabel} photo…`);
                             const reader = new FileReader();
                             reader.onload = () => handleProcessImage(reader.result);
                             reader.readAsDataURL(file);
@@ -334,14 +368,20 @@ export function ScannerScreen({ mode, onBack }) {
                       />
                     </label>
 
-                    {/* Main Shutter */}
+                    {/* Main Shutter with active spinning state */}
                     <button
                       onClick={handleCapture}
-                      disabled={!isReady}
-                      className="w-18 h-18 md:w-20 md:h-20 rounded-full bg-white border-4 border-gray-300 shadow-2xl active:scale-95 transition-transform disabled:opacity-40 flex items-center justify-center"
+                      disabled={!isReady || isCapturing}
+                      className="w-18 h-18 md:w-20 md:h-20 rounded-full bg-white border-4 border-gray-300 shadow-2xl active:scale-95 transition-transform disabled:opacity-50 flex items-center justify-center relative"
                       aria-label="Capture Photo"
                     >
-                      <div className="w-14 h-14 rounded-full bg-white border-2 border-gray-400" />
+                      {isCapturing ? (
+                        <div className={`w-10 h-10 border-4 border-gray-300 rounded-full animate-spin ${
+                          isInvoice ? 'border-t-blue-600' : 'border-t-purple-600'
+                        }`} />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-white border-2 border-gray-400" />
+                      )}
                     </button>
 
                     {/* Manual entry shortcut */}
@@ -361,7 +401,7 @@ export function ScannerScreen({ mode, onBack }) {
           </>
         )}
 
-        {/* ─── PROCESSING / EXTRACTING LOADING SCREEN ────────────────────────── */}
+        {/* ─── PROCESSING / EXTRACTING LOADING SCREEN (BOTH INVOICE & DOCKET) ── */}
         {phase === PHASE.PROCESSING && (
           <div className="absolute inset-0 flex flex-col bg-black">
             {/* Captured document preview with animated laser scanner */}
@@ -369,46 +409,69 @@ export function ScannerScreen({ mode, onBack }) {
               {previewUrl && (
                 <img
                   src={previewUrl}
-                  alt="Processing document"
-                  className="w-full h-full object-contain opacity-50 filter brightness-90"
+                  alt={`Processing ${modeLabel} document`}
+                  className="w-full h-full object-contain opacity-55 filter brightness-95"
                 />
               )}
 
               {/* Glowing animated laser scan beam across document */}
-              <div className="animate-laser-scan left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_18px_#38bdf8] pointer-events-none" />
+              <div className={`left-0 right-0 h-1 pointer-events-none ${
+                isInvoice
+                  ? 'animate-laser-scan bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_20px_#38bdf8]'
+                  : 'animate-laser-scan-purple bg-gradient-to-r from-transparent via-fuchsia-400 to-transparent shadow-[0_0_20px_#d946ef]'
+              }`} />
 
               {/* Scanning corner reticles */}
-              <div className="absolute inset-4 md:inset-8 pointer-events-none border border-cyan-500/30 rounded-2xl flex flex-col justify-between p-3">
+              <div className={`absolute inset-4 md:inset-8 pointer-events-none border rounded-2xl flex flex-col justify-between p-3 ${
+                isInvoice ? 'border-cyan-500/30' : 'border-fuchsia-500/30'
+              }`}>
                 <div className="flex justify-between">
-                  <div className="w-5 h-5 border-t-2 border-l-2 border-cyan-400" />
-                  <div className="w-5 h-5 border-t-2 border-r-2 border-cyan-400" />
+                  <div className={`w-6 h-6 border-t-2 border-l-2 ${isInvoice ? 'border-cyan-400' : 'border-fuchsia-400'}`} />
+                  <div className={`w-6 h-6 border-t-2 border-r-2 ${isInvoice ? 'border-cyan-400' : 'border-fuchsia-400'}`} />
                 </div>
                 <div className="flex justify-between">
-                  <div className="w-5 h-5 border-b-2 border-l-2 border-cyan-400" />
-                  <div className="w-5 h-5 border-b-2 border-r-2 border-cyan-400" />
+                  <div className={`w-6 h-6 border-b-2 border-l-2 ${isInvoice ? 'border-cyan-400' : 'border-fuchsia-400'}`} />
+                  <div className={`w-6 h-6 border-b-2 border-r-2 ${isInvoice ? 'border-cyan-400' : 'border-fuchsia-400'}`} />
                 </div>
               </div>
             </div>
 
             {/* Bottom Extraction Card */}
             <div className="absolute inset-x-0 bottom-0 z-30 p-4 pb-8 bg-gradient-to-t from-black via-black/95 to-transparent">
-              <div className="bg-gray-900/90 backdrop-blur-md rounded-2xl p-5 border border-gray-700/80 shadow-2xl max-w-sm mx-auto flex flex-col items-center text-center">
+              <div className="bg-gray-900/95 backdrop-blur-md rounded-2xl p-5 border border-gray-700/80 shadow-2xl max-w-sm mx-auto flex flex-col items-center text-center">
                 
-                {/* Engine Badge */}
-                <div className="flex items-center gap-2 mb-3">
+                {/* Mode & Engine Badges */}
+                <div className="flex items-center gap-2 mb-3 flex-wrap justify-center">
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+                    isInvoice
+                      ? 'bg-blue-950/80 border-blue-700/60 text-blue-300'
+                      : 'bg-purple-950/80 border-purple-700/60 text-purple-300'
+                  }`}>
+                    {isInvoice ? '🧾 Invoice Scan' : '📦 Docket Scan'}
+                  </span>
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${engineBadge.cls}`}>
                     {engineBadge.label}
                   </span>
-                  <span className="text-[11px] text-cyan-300 bg-cyan-950/80 border border-cyan-800 px-2 py-0.5 rounded-full font-medium">
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium border animate-pulse ${
+                    isInvoice
+                      ? 'text-cyan-300 bg-cyan-950/80 border-cyan-800'
+                      : 'text-fuchsia-300 bg-fuchsia-950/80 border-fuchsia-800'
+                  }`}>
                     ⚡ Processing
                   </span>
                 </div>
 
                 {/* Animated Scanner Ring */}
-                <div className="relative w-14 h-14 mb-3 flex items-center justify-center">
-                  <div className="absolute inset-0 rounded-full border-4 border-gray-700 border-t-cyan-400 border-r-blue-500 animate-spin" />
-                  <div className="w-7 h-7 rounded-full bg-cyan-500/20 flex items-center justify-center animate-pulse">
-                    <span className="text-base">📄</span>
+                <div className="relative w-16 h-16 mb-3 flex items-center justify-center">
+                  <div className={`absolute inset-0 rounded-full border-4 border-gray-700 animate-spin ${
+                    isInvoice
+                      ? 'border-t-cyan-400 border-r-blue-500'
+                      : 'border-t-fuchsia-400 border-r-purple-500'
+                  }`} />
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center animate-pulse ${
+                    isInvoice ? 'bg-cyan-500/20' : 'bg-fuchsia-500/20'
+                  }`}>
+                    <span className="text-lg">{isInvoice ? '🧾' : '📦'}</span>
                   </div>
                 </div>
 
@@ -418,17 +481,23 @@ export function ScannerScreen({ mode, onBack }) {
                 </h3>
 
                 {/* Dynamic Status / Progress Subtext */}
-                <p className="text-cyan-300 text-xs font-medium mb-3 min-h-[18px] transition-all">
+                <p className={`text-xs font-medium mb-3 min-h-[18px] transition-all ${
+                  isInvoice ? 'text-cyan-300' : 'text-fuchsia-300'
+                }`}>
                   {processingMsg || 'Detecting & reading numbers…'}
                 </p>
 
                 {/* Animated Shimmer Bar */}
                 <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mb-2">
-                  <div className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 rounded-full w-full animate-pulse" />
+                  <div className={`h-full rounded-full w-full animate-pulse ${
+                    isInvoice
+                      ? 'bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500'
+                      : 'bg-gradient-to-r from-fuchsia-500 via-purple-500 to-pink-500'
+                  }`} />
                 </div>
 
                 <span className="text-[11px] text-gray-400">
-                  Scanning document digits &amp; labels
+                  Scanning document digits &amp; labels in real time
                 </span>
               </div>
             </div>
