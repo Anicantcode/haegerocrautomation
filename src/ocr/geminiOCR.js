@@ -60,18 +60,17 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
     }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 128,
+      maxOutputTokens: 2048,
       responseMimeType: 'application/json',
     },
   };
 
-  // Candidate models in order of speed and accuracy
+  // Candidate models in order of speed and stability
   const models = [
-    'gemini-2.5-flash',
     'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
     'gemini-1.5-flash',
-    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash-lite',
     'gemini-1.5-pro',
   ];
   let lastError = null;
@@ -95,7 +94,14 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
       }
 
       const json = await res.json();
-      const raw  = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
+      const parts = json?.candidates?.[0]?.content?.parts || [];
+      
+      // Grab text, ignoring thought parts if present
+      const jsonPart = parts.find(p => !p.thought && p.text && p.text.includes('{'))
+                    || parts.find(p => !p.thought && p.text)
+                    || parts[parts.length - 1];
+      const raw = jsonPart?.text?.trim() ?? '';
+      const allText = parts.map(p => p.text || '').join('\n');
 
       // ── Layer 1: Structured JSON parsing ─────────────────────────────────
       let extracted = '';
@@ -118,14 +124,15 @@ export async function extractWithGemini(imageDataUrl, mode, apiKey) {
         }
       }
 
-      // ── Layer 2: Regex extraction fallback on raw response ───────────────
+      // ── Layer 2: Regex extraction fallback on all response text ─────────
       if (!extracted) {
+        const targetText = raw.length > 5 ? raw : allText;
         if (mode === 'invoice') {
-          // Look for 8-12 digits in raw text
-          const m = raw.match(/DN[\s\w.:\-]*?(\d{8,12})/i) || raw.match(/\b(\d{8,12})\b/);
+          // Look for DN No. followed by digits or any 8-12 digit sequence
+          const m = targetText.match(/DN[\s\w.:\-]*?(\d{8,12})/i) || targetText.match(/\b(\d{8,12})\b/);
           if (m) extracted = m[1];
         } else {
-          const m = raw.match(/(?:Docket|Consignment)[\s\w.:\-]*?([A-Za-z0-9]{6,20})/i) || raw.match(/\b([A-Za-z0-9]{6,20})\b/);
+          const m = targetText.match(/(?:Docket|Consignment)[\s\w.:\-]*?([A-Za-z0-9]{6,20})/i) || targetText.match(/\b([A-Za-z0-9]{6,20})\b/);
           if (m) extracted = m[1];
         }
       }
