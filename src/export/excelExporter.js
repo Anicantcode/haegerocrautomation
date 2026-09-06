@@ -119,14 +119,48 @@ export async function shareExcelFile(fileData) {
 }
 
 /**
+ * Creates a CSV File and Blob with UTF-8 BOM from records.
+ * UTF-8 BOM ensures Excel on Windows/Android opens all columns cleanly.
+ * .csv format is supported by Chromium Web Share API without Permission Denied.
+ */
+export function createCsvFile(records) {
+  if (!records || records.length === 0) {
+    throw new Error('No records to export.');
+  }
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const filename = `Invoice_Docket_Scan_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.csv`;
+
+  const escapeCsv = (val) => {
+    if (val === null || val === undefined) return '""';
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const header = ['Sr No', 'DN No', 'Docket No', 'No of Boxes', 'Weight', 'Transporter Name'].join(',');
+  const rows = records.map((r, idx) => [
+    idx + 1,
+    escapeCsv(r.dnNumber),
+    escapeCsv(r.docketNumber),
+    escapeCsv(r.boxes),
+    escapeCsv(r.weight),
+    escapeCsv(r.transporter),
+  ].join(',')).join('\r\n');
+
+  // Prepend UTF-8 BOM (\uFEFF)
+  const csvContent = '\uFEFF' + header + '\r\n' + rows;
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+  const file = new File([blob], filename, { type: 'text/csv' });
+
+  return { filename, blob, file };
+}
+
+/**
  * Creates a CSV Blob from records (useful as an alternative share format)
  */
 export function createCsvBlob(records) {
-  const header = 'Sr No,DN No,Docket No,No of Boxes,Weight,Transporter Name\n';
-  const rows = (records || []).map((r, i) =>
-    `${i + 1},"${r.dnNumber || ''}","${r.docketNumber || ''}","${r.boxes || ''}","${r.weight || ''}","${r.transporter || ''}"`
-  ).join('\n');
-  return new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+  return createCsvFile(records).blob;
 }
 
 /**

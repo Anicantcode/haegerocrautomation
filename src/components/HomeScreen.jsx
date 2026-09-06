@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useApp, getStats, ACTIONS } from '../context/AppContext.jsx';
 import { ClearSessionDialog } from './ClearSessionDialog.jsx';
 import { ShareModal } from './ShareModal.jsx';
-import { exportToExcel } from '../export/excelExporter.js';
+import { exportToExcel, createExcelFile } from '../export/excelExporter.js';
 
 export function HomeScreen({ onNavigate }) {
   const { state, dispatch } = useApp();
@@ -30,7 +30,9 @@ export function HomeScreen({ onNavigate }) {
   };
 
   const handleShare = () => {
-    if (!lastExported) return;
+    if (state.records.length === 0) return;
+    const fileData = createExcelFile(state.records);
+    setLastExported(fileData);
     setShowShareModal(true);
   };
 
