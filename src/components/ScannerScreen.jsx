@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp, ACTIONS, isDuplicateDN, isDuplicateDocket } from '../context/AppContext.jsx';
 import { useCamera } from '../hooks/useCamera.js';
-import { extractWithGemini, loadApiKey } from '../ocr/geminiOCR.js';
 import { recognizeWithPaddle } from '../ocr/paddleProcessor.js';
 import { initOCR, recognizeImage } from '../ocr/ocrProcessor.js';
 import { extractDNNumber } from '../ocr/invoiceExtractor.js';
 import { extractDocketNumber } from '../ocr/docketExtractor.js';
 import { scanBarcode } from '../ocr/barcodeScanner.js';
 import { ManualEntryDialog } from './ManualEntryDialog.jsx';
-import { ApiKeyModal } from './ApiKeyModal.jsx';
 
 function playBeep() {
   try {
@@ -33,14 +31,15 @@ export function ScannerScreen({ mode, onBack }) {
   const [phase,         setPhase]         = useState(PHASE.PREVIEW);
   const [previewUrl,    setPreviewUrl]     = useState(null);
   const [ocrResult,     setOcrResult]      = useState(null);
-  const [ocrEngine,     setOcrEngine]      = useState('');   // 'gemini' | 'paddle' | 'tesseract'
-  const [engineChoice,  setEngineChoice]   = useState(() => localStorage.getItem('haeger_ocr_engine') || 'auto');
+  const [ocrEngine,     setOcrEngine]      = useState('');   // 'barcode' | 'paddle' | 'tesseract'
+  const [engineChoice,  setEngineChoice]   = useState(() => {
+    const c = localStorage.getItem('haeger_ocr_engine');
+    return (c === 'gemini' || !c) ? 'auto' : c;
+  });
   const [lastOcrError,  setLastOcrError]   = useState('');
   const [processingMsg, setProcessingMsg]  = useState('');
   const [editValue,     setEditValue]      = useState(null);
   const [showManual,    setShowManual]     = useState(false);
-  const [showApiKey,    setShowApiKey]     = useState(false);
-  const [apiKey,        setApiKey]         = useState(loadApiKey);
   const [savedBanner,   setSavedBanner]    = useState('');
   const [dupWarning,    setDupWarning]     = useState('');
   const [activeMode,    setActiveMode]    = useState(mode);
@@ -153,19 +152,19 @@ export function ScannerScreen({ mode, onBack }) {
   // ── Core OCR processing function (works for both camera and file upload) ──
   const handleProcessImage = useCallback(async (imageDataUrl, processedCanvas = null, options = {}) => {
     if (!imageDataUrl) return;
-    const { forceAI = false } = options;
+    const { forceOCR = false } = options;
 
     setPreviewUrl(imageDataUrl);
     setPhase(PHASE.PROCESSING);
     setDupWarning('');
     setLastOcrError('');
 
-    // Give browser UI thread a 100ms yield to render the loading animations before any synchronous OCR work starts
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Yield to render loading animations before OCR begins
+    await new Promise(resolve => setTimeout(resolve, 80));
 
-    // ── Tier 0: Instant Barcode Check on Captured Photo (unless user requested AI OCR) ──
-    if (!forceAI && autoBarcode) {
-      setProcessingMsg(`Checking for barcode in ${modeLabel} photo…`);
+    // ── Tier 0: Instant Barcode Check on Captured Photo (unless user requested text OCR) ──
+    if (!forceOCR && autoBarcode) {
+      setProcessingMsg(`Checking for barcode in ${modeLabel}…`);
       try {
         const barcode = await scanBarcode(processedCanvas || imageDataUrl);
         if (barcode && barcode.value) {
@@ -189,48 +188,13 @@ export function ScannerScreen({ mode, onBack }) {
       }
     }
 
-    setProcessingMsg(`Analyzing ${modeLabel} photo with AI…`);
-
-    const key = loadApiKey();
+    setProcessingMsg(`Scanning ${modeLabel} with offline OCR…`);
     const activeEngine = engineChoice;
 
-    // ── Tier 1: Cloud AI Vision (if selected or auto with key) ───────────
-    if ((activeEngine === 'gemini' || activeEngine === 'auto') && key) {
-      try {
-        setProcessingMsg(`Connecting to Cloud AI for ${modeLabel}…`);
-        setOcrEngine('gemini');
-        await new Promise(resolve => setTimeout(resolve, 40));
-        const result = await extractWithGemini(imageDataUrl, activeMode, key);
-        setProcessingMsg(`Extracting ${fieldLabel}…`);
-        setOcrResult(result);
-        if (result && result.value) {
-          setPhase(PHASE.OK);
-          return;
-        } else if (activeEngine === 'gemini') {
-          setPhase(PHASE.NONE);
-          return;
-        }
-      } catch (err) {
-        console.error('Cloud AI OCR error:', err);
-        setLastOcrError(`Cloud AI: ${err.message}`);
-        if (activeEngine === 'gemini') {
-          setDupWarning(`Cloud AI Error: ${err.message}`);
-          setPhase(PHASE.NONE);
-          return;
-        }
-        setProcessingMsg(`Cloud AI unavailable. Initializing offline neural engine for ${modeLabel}…`);
-      }
-    } else if (activeEngine === 'gemini' && !key) {
-      setShowApiKey(true);
-      setPhase(PHASE.PREVIEW);
-      setDupWarning('Please configure your API key first.');
-      return;
-    }
-
-    // ── Tier 2: In-Browser Neural Engine (Offline AI) ───────────────────────
+    // ── Tier 1: In-Browser Neural Engine (Offline AI) ───────────────────────
     if (activeEngine === 'paddle' || activeEngine === 'auto') {
       try {
-        setProcessingMsg(`Starting offline engine for ${modeLabel}…`);
+        setProcessingMsg(`Running neural OCR for ${modeLabel}…`);
         setOcrEngine('paddle');
         await new Promise(resolve => setTimeout(resolve, 40));
         const target = processedCanvas || imageDataUrl;
@@ -259,9 +223,9 @@ export function ScannerScreen({ mode, onBack }) {
         }
       } catch (paddleErr) {
         console.error('Offline OCR error:', paddleErr);
-        setLastOcrError(`Offline OCR error: ${paddleErr.message}`);
+        setLastOcrError(`Neural OCR error: ${paddleErr.message}`);
         if (activeEngine === 'paddle') {
-          setDupWarning(`Offline OCR error: ${paddleErr.message}`);
+          setDupWarning(`Neural OCR error: ${paddleErr.message}`);
           setOcrResult({
             value: '',
             confidence: 'LOW',
@@ -270,7 +234,7 @@ export function ScannerScreen({ mode, onBack }) {
           setPhase(PHASE.NONE);
           return;
         }
-        setProcessingMsg(`Switching to secondary OCR engine for ${modeLabel}…`);
+        setProcessingMsg(`Switching to standard OCR for ${modeLabel}…`);
       }
     }
 
@@ -326,10 +290,8 @@ export function ScannerScreen({ mode, onBack }) {
 
   const engineBadge = ocrEngine === 'barcode'
     ? { label: `⚡ Barcode (${ocrResult?.format || '1D'})`, cls: 'bg-emerald-950 border border-emerald-600 text-emerald-300' }
-    : ocrEngine === 'gemini'
-    ? { label: '✨ Cloud AI', cls: 'bg-purple-900 text-purple-300' }
     : ocrEngine === 'paddle'
-    ? { label: '⚡ Smart OCR', cls: 'bg-blue-900 text-blue-300' }
+    ? { label: '⚡ Neural OCR', cls: 'bg-blue-900 text-blue-300' }
     : { label: '🔷 Standard OCR', cls: 'bg-gray-800 text-gray-300' };
 
   return (
@@ -373,7 +335,7 @@ export function ScannerScreen({ mode, onBack }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {/* Barcode live scan toggle */}
           <button
             onClick={() => setAutoBarcode(prev => {
@@ -395,26 +357,14 @@ export function ScannerScreen({ mode, onBack }) {
           <select
             value={engineChoice}
             onChange={(e) => handleSetEngine(e.target.value)}
-            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[100px] sm:max-w-none truncate"
-            title="Scan Mode"
+            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[110px] sm:max-w-none truncate"
+            title="OCR Engine"
           >
-            <option value="auto">⚡ Auto</option>
-            <option value="paddle">⚡ Offline</option>
-            <option value="gemini">✨ Cloud AI</option>
-            <option value="tesseract">🔷 Standard</option>
+            <option value="auto">⚡ Auto (Barcode+OCR)</option>
+            <option value="paddle">⚡ Neural OCR</option>
+            <option value="tesseract">🔷 Standard OCR</option>
           </select>
 
-          {/* API key indicator */}
-          <button
-            onClick={() => setShowApiKey(true)}
-            className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
-              apiKey
-                ? 'border-purple-700 text-purple-400 bg-purple-950/50'
-                : 'border-gray-700 text-gray-500 bg-gray-900/50'
-            }`}
-          >
-            {apiKey ? '🔑' : '🔑 Key'}
-          </button>
           <div className="text-xs text-green-400 font-semibold pl-0.5">
             {state.records.filter(r=>r.status==='COMPLETE').length}✓
           </div>
@@ -730,13 +680,13 @@ export function ScannerScreen({ mode, onBack }) {
                   <span>Save &amp; Switch to {isInvoice ? '📦 Docket' : '🧾 DN'}</span>
                 </button>
 
-                {/* If scanned via Barcode, offer instant 1-tap "Wrong number? Scan with AI OCR" */}
+                {/* If scanned via Barcode, offer instant 1-tap fallback to text OCR */}
                 {ocrEngine === 'barcode' && (
                   <button
-                    onClick={() => handleProcessImage(previewUrl, null, { forceAI: true })}
+                    onClick={() => handleProcessImage(previewUrl, null, { forceOCR: true })}
                     className="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium py-2.5 rounded-xl text-xs border border-gray-700 flex items-center justify-center gap-2 transition-all active:scale-98"
                   >
-                    <span>🤖</span> Wrong number? Scan with AI OCR
+                    <span>🔍</span> Wrong number? Re-read text with OCR
                   </button>
                 )}
 
@@ -769,15 +719,10 @@ export function ScannerScreen({ mode, onBack }) {
                 <h2 className="text-white font-bold text-xl mb-2">{fieldLabel} not found</h2>
                 <p className="text-gray-400 text-sm leading-relaxed">
                   Ensure the <span className="text-gray-200 font-medium">{fieldLabel}</span> label
-                  and number are clearly visible, well-lit, and in focus.
+                  and number are clearly visible, well-lit, and in focus inside the box.
                 </p>
-                {ocrResult?.raw && (
-                  <div className="mt-3 p-2 bg-gray-900 border border-gray-800 rounded-lg text-[11px] font-mono text-gray-400 break-all max-h-24 overflow-y-auto">
-                    AI response: {ocrResult.raw}
-                  </div>
-                )}
                 {ocrResult?.rawText && (
-                  <div className="mt-2 p-2 bg-gray-900 border border-gray-800 rounded-lg text-[11px] font-mono text-gray-400 text-left max-h-24 overflow-y-auto whitespace-pre-wrap">
+                  <div className="mt-3 p-2 bg-gray-900 border border-gray-800 rounded-lg text-[11px] font-mono text-gray-400 text-left max-h-24 overflow-y-auto whitespace-pre-wrap">
                     <div className="text-gray-300 font-bold mb-0.5">Detected Text:</div>
                     {ocrResult.rawText.slice(0, 400)}
                   </div>
@@ -786,12 +731,6 @@ export function ScannerScreen({ mode, onBack }) {
                   <div className="mt-2 p-2 bg-red-950/70 border border-red-800 rounded-lg text-[11px] font-mono text-red-300 text-left break-all">
                     {lastOcrError}
                   </div>
-                )}
-                {!apiKey && engineChoice === 'auto' && (
-                  <button onClick={() => setShowApiKey(true)}
-                    className="mt-3 text-purple-400 text-sm underline underline-offset-2">
-                    ✨ Add API key for highest accuracy
-                  </button>
                 )}
               </div>
               <div className="flex flex-col gap-3">
@@ -812,10 +751,6 @@ export function ScannerScreen({ mode, onBack }) {
       {showManual && (
         <ManualEntryDialog mode={activeMode} initialValue={editValue || ''}
           onConfirm={handleManualSave} onCancel={() => { setShowManual(false); setEditValue(null); }} />
-      )}
-
-      {showApiKey && (
-        <ApiKeyModal currentKey={apiKey} onSave={setApiKey} onClose={() => setShowApiKey(false)} />
       )}
     </div>
   );

@@ -1,18 +1,14 @@
 import { useState } from 'react';
 import { useApp, getStats, ACTIONS } from '../context/AppContext.jsx';
 import { ClearSessionDialog } from './ClearSessionDialog.jsx';
-import { ApiKeyModal } from './ApiKeyModal.jsx';
 import { ShareModal } from './ShareModal.jsx';
 import { exportToExcel } from '../export/excelExporter.js';
-import { loadApiKey } from '../ocr/geminiOCR.js';
 
 export function HomeScreen({ onNavigate }) {
   const { state, dispatch } = useApp();
   const stats = getStats(state.records);
   const [showClear,      setShowClear]      = useState(false);
-  const [showApiKey,     setShowApiKey]     = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [apiKey,         setApiKey]         = useState(loadApiKey);
   const [exportMsg,      setExportMsg]      = useState('');
   const [lastExported,   setLastExported]   = useState(null);
 
@@ -53,18 +49,10 @@ export function HomeScreen({ onNavigate }) {
           <h1 className="text-xl font-bold text-white">📄 Invoice &amp; Docket Scanner</h1>
           <p className="text-gray-400 text-xs mt-0.5">Scan · Pair · Export</p>
         </div>
-        <button
-          onClick={() => setShowApiKey(true)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-            apiKey
-              ? 'bg-emerald-950/80 border-emerald-700/60 text-emerald-300 hover:bg-emerald-900/80'
-              : 'bg-amber-950/80 border-amber-700/60 text-amber-300 hover:bg-amber-900/80 animate-pulse'
-          }`}
-          title="Configure API Key"
-        >
-          <span>🔑</span>
-          <span>{apiKey ? 'Cloud AI Active' : 'Set API Key'}</span>
-        </button>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-emerald-950/80 border-emerald-700/60 text-emerald-300">
+          <span>⚡</span>
+          <span>Offline Ready</span>
+        </div>
       </header>
 
       {/* Stats */}
@@ -150,17 +138,6 @@ export function HomeScreen({ onNavigate }) {
 
       {showClear && (
         <ClearSessionDialog onConfirm={handleClear} onCancel={() => setShowClear(false)} />
-      )}
-
-      {showApiKey && (
-        <ApiKeyModal
-          currentKey={apiKey}
-          onSave={(key) => {
-            setApiKey(key);
-            setShowApiKey(false);
-          }}
-          onClose={() => setShowApiKey(false)}
-        />
       )}
 
       {showShareModal && lastExported && (
