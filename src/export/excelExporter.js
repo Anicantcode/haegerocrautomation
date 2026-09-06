@@ -12,38 +12,41 @@ export function createExcelFile(records) {
 
   const wb = XLSX.utils.book_new();
 
-  // Build data rows — include ALL records (show dashes for missing values)
-  const header = ['Sr No', 'DN No', 'Docket No'];
+  // Build data rows — include ALL records (show empty string for missing values)
+  const header = ['Sr No', 'DN No', 'Docket No', 'No of Boxes', 'Weight', 'Transporter Name'];
   const rows = records.map((r, idx) => [
     idx + 1,
     r.dnNumber || '',
     r.docketNumber || '',
+    r.boxes || '',
+    r.weight || '',
+    r.transporter || '',
   ]);
 
   // Create worksheet from array of arrays
   const wsData = [header, ...rows];
   const ws = XLSX.utils.aoa_to_sheet(wsData, { raw: false });
 
-  // Force DN No (col B) and Docket No (col C) cells to TEXT type
+  // Force text type for data columns (cols B through F) to prevent numeric/scientific formatting glitches
   const rowCount = rows.length;
   for (let row = 1; row <= rowCount; row++) {
-    const dnAddr = XLSX.utils.encode_cell({ r: row, c: 1 });
-    const docketAddr = XLSX.utils.encode_cell({ r: row, c: 2 });
-    if (ws[dnAddr] && ws[dnAddr].v !== '') {
-      ws[dnAddr].t = 's';
-      ws[dnAddr].z = '@';
-    }
-    if (ws[docketAddr] && ws[docketAddr].v !== '') {
-      ws[docketAddr].t = 's';
-      ws[docketAddr].z = '@';
+    for (let c = 1; c <= 5; c++) {
+      const addr = XLSX.utils.encode_cell({ r: row, c });
+      if (ws[addr] && ws[addr].v !== '') {
+        ws[addr].t = 's';
+        ws[addr].z = '@';
+      }
     }
   }
 
   // Column widths
   ws['!cols'] = [
     { wch: 8 },   // Sr No
-    { wch: 16 },  // DN No
+    { wch: 18 },  // DN No
     { wch: 22 },  // Docket No
+    { wch: 14 },  // No of Boxes
+    { wch: 14 },  // Weight
+    { wch: 26 },  // Transporter Name
   ];
 
   // Freeze top row
@@ -119,8 +122,10 @@ export async function shareExcelFile(fileData) {
  * Creates a CSV Blob from records (useful as an alternative share format)
  */
 export function createCsvBlob(records) {
-  const header = 'Sr No,DN No,Docket No\n';
-  const rows = (records || []).map((r, i) => `${i + 1},"${r.dnNumber || ''}","${r.docketNumber || ''}"`).join('\n');
+  const header = 'Sr No,DN No,Docket No,No of Boxes,Weight,Transporter Name\n';
+  const rows = (records || []).map((r, i) =>
+    `${i + 1},"${r.dnNumber || ''}","${r.docketNumber || ''}","${r.boxes || ''}","${r.weight || ''}","${r.transporter || ''}"`
+  ).join('\n');
   return new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
 }
 
@@ -135,7 +140,13 @@ export function formatRecordsForWhatsApp(records) {
   const lines = records.map((r, i) => {
     const dn = r.dnNumber || '(missing)';
     const docket = r.docketNumber || '(missing)';
-    return `${i + 1}. DN: ${dn}  |  Docket: ${docket}`;
+    const details = [
+      r.boxes ? `Boxes: ${r.boxes}` : '',
+      r.weight ? `Wt: ${r.weight}` : '',
+      r.transporter ? `Transporter: ${r.transporter}` : '',
+    ].filter(Boolean).join(' | ');
+
+    return `${i + 1}. DN: ${dn}  |  Docket: ${docket}${details ? `\n   ↳ ${details}` : ''}`;
   });
   return `${header}${lines.join('\n')}\n------------------------------\nSent from Invoice & Docket Scanner`;
 }
@@ -145,8 +156,10 @@ export function formatRecordsForWhatsApp(records) {
  */
 export function formatRecordsForClipboard(records) {
   if (!records || records.length === 0) return '';
-  const header = 'Sr No\tDN No\tDocket No\n';
-  const rows = records.map((r, i) => `${i + 1}\t${r.dnNumber || ''}\t${r.docketNumber || ''}`).join('\n');
+  const header = 'Sr No\tDN No\tDocket No\tNo of Boxes\tWeight\tTransporter Name\n';
+  const rows = records.map((r, i) =>
+    `${i + 1}\t${r.dnNumber || ''}\t${r.docketNumber || ''}\t${r.boxes || ''}\t${r.weight || ''}\t${r.transporter || ''}`
+  ).join('\n');
   return `${header}${rows}`;
 }
 
