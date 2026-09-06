@@ -128,5 +128,6 @@ export function isDuplicateDN(dnNumber, records) {
 }
 
 export function isDuplicateDocket(docketNumber, records) {
-  return records.some(r => r.docketNumber === docketNumber);
+  // Multiple packages and invoices can share the same Docket / Consignment number
+  return false;
 }

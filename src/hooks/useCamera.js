@@ -63,8 +63,9 @@ export function useCamera() {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.play().then(() => setIsReady(true)).catch(() => {});
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play();
+          videoRef.current.play().catch(() => {});
           setIsReady(true);
         };
       }
@@ -75,6 +76,15 @@ export function useCamera() {
         setError('No camera found on this device.');
       else
         setError(`Camera error: ${err.message}`);
+    }
+  }, []);
+
+  const ensureVideo = useCallback(() => {
+    if (videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+      videoRef.current.play().then(() => setIsReady(true)).catch(() => {});
     }
   }, []);
 
@@ -119,5 +129,5 @@ export function useCamera() {
     return { previewUrl, processedCanvas: proc };
   }, [isReady]);
 
-  return { videoRef, isReady, error, startCamera, stopCamera, captureFrame };
+  return { videoRef, isReady, error, startCamera, stopCamera, captureFrame, ensureVideo };
 }

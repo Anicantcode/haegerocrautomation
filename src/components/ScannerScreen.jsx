@@ -28,7 +28,7 @@ const PHASE = { PREVIEW: 'preview', PROCESSING: 'processing', OK: 'ok', NONE: 'n
 
 export function ScannerScreen({ mode, onBack }) {
   const { state, dispatch } = useApp();
-  const { videoRef, isReady, error: camError, startCamera, stopCamera, captureFrame } = useCamera();
+  const { videoRef, isReady, error: camError, startCamera, stopCamera, captureFrame, ensureVideo } = useCamera();
 
   const [phase,         setPhase]         = useState(PHASE.PREVIEW);
   const [previewUrl,    setPreviewUrl]     = useState(null);
@@ -43,11 +43,14 @@ export function ScannerScreen({ mode, onBack }) {
   const [apiKey,        setApiKey]         = useState(loadApiKey);
   const [savedBanner,   setSavedBanner]    = useState('');
   const [dupWarning,    setDupWarning]     = useState('');
-  const [isCapturing,   setIsCapturing]    = useState(false);
+  const [activeMode,    setActiveMode]    = useState(mode);
+  const [isCapturing,   setIsCapturing]   = useState(false);
   const [autoBarcode,   setAutoBarcode]    = useState(() => localStorage.getItem('haeger_auto_barcode') !== 'false');
   const scanningBarcodeRef = useRef(false);
+  const lastScannedBarcodeRef = useRef('');
+  const barcodeCooldownRef = useRef(0);
 
-  const isInvoice  = mode === 'invoice';
+  const isInvoice  = activeMode === 'invoice';
   const modeLabel  = isInvoice ? 'Invoice' : 'Docket';
   const fieldLabel = isInvoice ? 'DN No.'  : 'Docket / Consignment No.';
 
@@ -69,13 +72,16 @@ export function ScannerScreen({ mode, onBack }) {
         if (found && found.value && active) {
           const rawCandidate = found.value.replace(/[\s\-\.\#\:\/]/g, '');
           if (rawCandidate.length >= 4) {
-            // Check for duplicates
-            const isDup = mode === 'invoice'
-              ? isDuplicateDN(rawCandidate, state.records)
-              : isDuplicateDocket(rawCandidate, state.records);
+            // Prevent immediate re-scan of the same code during cooldown
+            if (rawCandidate === lastScannedBarcodeRef.current && Date.now() < barcodeCooldownRef.current) {
+              return;
+            }
+
+            // Check for duplicates ONLY for Invoice (DN No). Docket numbers CAN be duplicate!
+            const isDup = activeMode === 'invoice' && isDuplicateDN(rawCandidate, state.records);
 
             if (isDup) {
-              setDupWarning(`⚠️ Barcode ${rawCandidate} already scanned.`);
+              setDupWarning(`⚠️ DN ${rawCandidate} already scanned.`);
               setTimeout(() => setDupWarning(''), 3500);
             } else {
               // Capture the current camera frame for the preview background
@@ -107,7 +113,7 @@ export function ScannerScreen({ mode, onBack }) {
       active = false;
       clearInterval(interval);
     };
-  }, [phase, isReady, autoBarcode, camError, mode, state.records, captureFrame]);
+  }, [phase, isReady, autoBarcode, camError, activeMode, state.records, captureFrame]);
 
   const handleSetEngine = (choice) => {
     setEngineChoice(choice);
@@ -115,23 +121,34 @@ export function ScannerScreen({ mode, onBack }) {
   };
 
   // ── Save confirmed value ─────────────────────────────────────────────────────
-  const saveValue = useCallback((value) => {
-    const isDup = mode === 'invoice'
-      ? isDuplicateDN(value, state.records)
-      : isDuplicateDocket(value, state.records);
+  const saveValue = useCallback((value, nextMode = null) => {
+    // Only DN numbers must be unique. Dockets can be duplicate across multiple invoices.
+    const isDup = activeMode === 'invoice' && isDuplicateDN(value, state.records);
     if (isDup) {
-      setDupWarning(`⚠️ ${value} already scanned.`);
+      setDupWarning(`⚠️ DN ${value} already scanned.`);
       setTimeout(() => setDupWarning(''), 3500);
       return;
     }
-    dispatch({ type: mode === 'invoice' ? ACTIONS.ADD_INVOICE : ACTIONS.ADD_DOCKET, payload: value });
+    dispatch({ type: activeMode === 'invoice' ? ACTIONS.ADD_INVOICE : ACTIONS.ADD_DOCKET, payload: value });
     playBeep(); vibrate();
-    setSavedBanner(`✅ Saved: ${value}`);
+
+    // Prevent re-triggering auto-scan on this exact barcode for 2.5 seconds
+    lastScannedBarcodeRef.current = value;
+    barcodeCooldownRef.current = Date.now() + 2500;
+
+    const savedType = activeMode === 'invoice' ? 'DN' : 'Docket';
+    setSavedBanner(`✅ Saved ${savedType}: ${value}`);
     setTimeout(() => setSavedBanner(''), 3000);
+
+    if (nextMode && (nextMode === 'invoice' || nextMode === 'docket')) {
+      setActiveMode(nextMode);
+    }
+
     setPhase(PHASE.PREVIEW);
     setOcrResult(null);
     setPreviewUrl(null);
-  }, [mode, state.records, dispatch]);
+    ensureVideo();
+  }, [activeMode, state.records, dispatch, ensureVideo]);
 
   // ── Core OCR processing function (works for both camera and file upload) ──
   const handleProcessImage = useCallback(async (imageDataUrl, processedCanvas = null, options = {}) => {
@@ -183,7 +200,7 @@ export function ScannerScreen({ mode, onBack }) {
         setProcessingMsg(`Connecting to Cloud AI for ${modeLabel}…`);
         setOcrEngine('gemini');
         await new Promise(resolve => setTimeout(resolve, 40));
-        const result = await extractWithGemini(imageDataUrl, mode, key);
+        const result = await extractWithGemini(imageDataUrl, activeMode, key);
         setProcessingMsg(`Extracting ${fieldLabel}…`);
         setOcrResult(result);
         if (result && result.value) {
@@ -219,7 +236,7 @@ export function ScannerScreen({ mode, onBack }) {
         const target = processedCanvas || imageDataUrl;
         const data = await recognizeWithPaddle(target, (msg) => setProcessingMsg(msg));
         setProcessingMsg(`Locating ${fieldLabel} in ${modeLabel}…`);
-        const result = mode === 'invoice'
+        const result = isInvoice
           ? extractDNNumber(data.text, data.words)
           : extractDocketNumber(data.text, data.words);
 
@@ -268,7 +285,7 @@ export function ScannerScreen({ mode, onBack }) {
       const target = processedCanvas || imageDataUrl;
       const data   = await recognizeImage(target);
       setProcessingMsg(`Locating ${fieldLabel} in text…`);
-      const result = mode === 'invoice'
+      const result = isInvoice
         ? extractDNNumber(data.text, data.words)
         : extractDocketNumber(data.text, data.words);
       setOcrResult({ ...result, rawText: data.text });
@@ -278,7 +295,7 @@ export function ScannerScreen({ mode, onBack }) {
       setLastOcrError(`Tesseract error: ${err.message}`);
       setPhase(PHASE.NONE);
     }
-  }, [mode, engineChoice, modeLabel, fieldLabel, autoBarcode]);
+  }, [activeMode, isInvoice, engineChoice, modeLabel, fieldLabel, autoBarcode]);
 
   // ── Capture from camera ──────────────────────────────────────────────────────
   const handleCapture = useCallback(async () => {
@@ -298,6 +315,7 @@ export function ScannerScreen({ mode, onBack }) {
     setOcrResult(null);
     setPreviewUrl(null);
     setProcessingMsg('');
+    ensureVideo();
   };
 
   const handleManualSave = (value) => {
@@ -320,10 +338,38 @@ export function ScannerScreen({ mode, onBack }) {
       {/* Header */}
       <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-2 px-3 py-2.5 bg-gradient-to-b from-black/90 to-transparent">
         <div className="flex items-center gap-2 min-w-0">
-          <button onClick={() => { stopCamera(); onBack(); }} className="text-white text-2xl leading-none">←</button>
-          <div className="min-w-0">
-            <h1 className="text-white font-bold text-base truncate">Scan {modeLabel}</h1>
-            <p className="text-gray-300 text-[11px] truncate">{fieldLabel}</p>
+          <button onClick={() => { stopCamera(); onBack(); }} className="text-white text-2xl leading-none px-1 py-0.5">←</button>
+          
+          {/* Quick In-Camera Mode Switcher */}
+          <div className="flex items-center bg-gray-900/90 p-0.5 rounded-xl border border-gray-700/80">
+            <button
+              onClick={() => {
+                setActiveMode('invoice');
+                setPhase(PHASE.PREVIEW);
+                ensureVideo();
+              }}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                isInvoice
+                  ? 'bg-cyan-600 text-white shadow'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              🧾 DN
+            </button>
+            <button
+              onClick={() => {
+                setActiveMode('docket');
+                setPhase(PHASE.PREVIEW);
+                ensureVideo();
+              }}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                !isInvoice
+                  ? 'bg-fuchsia-600 text-white shadow'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              📦 Docket
+            </button>
           </div>
         </div>
 
@@ -340,22 +386,22 @@ export function ScannerScreen({ mode, onBack }) {
                 ? 'bg-emerald-950/80 border-emerald-600 text-emerald-300'
                 : 'bg-gray-900 border-gray-700 text-gray-400'
             }`}
-            title={autoBarcode ? "Live barcode scanning is ON (Tap to turn OFF)" : "Live barcode scanning is OFF (Tap to turn ON)"}
+            title={autoBarcode ? "Live barcode scanning is ON" : "Live barcode scanning is OFF"}
           >
-            <span>⚡</span> {autoBarcode ? 'Barcode ON' : 'Barcode OFF'}
+            <span>⚡</span> {autoBarcode ? 'Barcode' : 'Manual'}
           </button>
 
           {/* Engine Selector */}
           <select
             value={engineChoice}
             onChange={(e) => handleSetEngine(e.target.value)}
-            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[110px] sm:max-w-none truncate"
+            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[100px] sm:max-w-none truncate"
             title="Scan Mode"
           >
-            <option value="auto">⚡ Auto Scan</option>
-            <option value="paddle">⚡ Offline Fast</option>
+            <option value="auto">⚡ Auto</option>
+            <option value="paddle">⚡ Offline</option>
             <option value="gemini">✨ Cloud AI</option>
-            <option value="tesseract">🔷 Standard OCR</option>
+            <option value="tesseract">🔷 Standard</option>
           </select>
 
           {/* API key indicator */}
@@ -367,21 +413,32 @@ export function ScannerScreen({ mode, onBack }) {
                 : 'border-gray-700 text-gray-500 bg-gray-900/50'
             }`}
           >
-            {apiKey ? '🔑 AI' : '🔑 Key'}
+            {apiKey ? '🔑' : '🔑 Key'}
           </button>
-          <div className="text-xs text-green-400 font-semibold pl-1">
+          <div className="text-xs text-green-400 font-semibold pl-0.5">
             {state.records.filter(r=>r.status==='COMPLETE').length}✓
           </div>
         </div>
       </header>
 
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 relative overflow-hidden bg-black">
 
-        {/* ─── PREVIEW ──────────────────────────────────────────────────────── */}
+        {/* Persistent Camera Video Stream - Never unmounts to prevent camera freezes */}
+        <video
+          ref={videoRef}
+          className={`absolute inset-0 w-full h-full object-contain bg-black transition-opacity duration-200 ${
+            phase === PHASE.PREVIEW ? 'opacity-100' : 'opacity-20 pointer-events-none'
+          }`}
+          autoPlay
+          playsInline
+          muted
+        />
+
+        {/* ─── PREVIEW OVERLAYS ─────────────────────────────────────────────── */}
         {phase === PHASE.PREVIEW && (
           <>
             {camError ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950 p-6 gap-4">
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950 p-6 gap-4 z-20">
                 <span className="text-6xl">📷</span>
                 <p className="text-white font-bold text-lg text-center">Camera unavailable</p>
                 <p className="text-gray-400 text-sm text-center">{camError}</p>
@@ -391,15 +448,6 @@ export function ScannerScreen({ mode, onBack }) {
               </div>
             ) : (
               <>
-                {/* Full-view Camera Stream */}
-                <video
-                  ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-contain bg-black"
-                  autoPlay
-                  playsInline
-                  muted
-                />
-
                 {/* Camera Startup Loading Indicator */}
                 {!isReady && !camError && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-10 gap-3">
@@ -417,28 +465,49 @@ export function ScannerScreen({ mode, onBack }) {
                   </div>
                 )}
 
-                {/* Subtle corner framing indicators */}
-                <div className="absolute inset-4 md:inset-8 pointer-events-none border border-white/10 rounded-2xl flex flex-col justify-between p-3">
+                {/* Centered Reticle Targeting Box (Encompasses Barcode & Number) */}
+                <div className="absolute top-[42%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[88%] max-w-[340px] h-36 sm:h-40 pointer-events-none z-10 flex flex-col justify-between p-2.5 rounded-2xl border border-white/25 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]">
+                  {/* 4 Corner brackets */}
                   <div className="flex justify-between">
-                    <div className="w-6 h-6 border-t-2 border-l-2 border-yellow-400 rounded-tl-lg" />
-                    <div className="w-6 h-6 border-t-2 border-r-2 border-yellow-400 rounded-tr-lg" />
+                    <div className={`w-5 h-5 border-t-[3px] border-l-[3px] rounded-tl-xl ${
+                      isInvoice ? 'border-cyan-400' : 'border-fuchsia-400'
+                    }`} />
+                    <div className={`w-5 h-5 border-t-[3px] border-r-[3px] rounded-tr-xl ${
+                      isInvoice ? 'border-cyan-400' : 'border-fuchsia-400'
+                    }`} />
                   </div>
+
+                  {/* Barcode scanner laser guide contained inside box */}
+                  {autoBarcode && isReady && (
+                    <div className="flex items-center justify-center my-auto">
+                      <div className={`w-4/5 h-[2px] rounded-full animate-pulse ${
+                        isInvoice
+                          ? 'bg-cyan-400 shadow-[0_0_10px_#38bdf8]'
+                          : 'bg-fuchsia-400 shadow-[0_0_10px_#d946ef]'
+                      }`} />
+                    </div>
+                  )}
+
                   <div className="flex justify-between">
-                    <div className="w-6 h-6 border-b-2 border-l-2 border-yellow-400 rounded-bl-lg" />
-                    <div className="w-6 h-6 border-b-2 border-r-2 border-yellow-400 rounded-br-lg" />
+                    <div className={`w-5 h-5 border-b-[3px] border-l-[3px] rounded-bl-xl ${
+                      isInvoice ? 'border-cyan-400' : 'border-fuchsia-400'
+                    }`} />
+                    <div className={`w-5 h-5 border-b-[3px] border-r-[3px] rounded-tr-xl ${
+                      isInvoice ? 'border-cyan-400' : 'border-fuchsia-400'
+                    }`} />
                   </div>
                 </div>
 
-                {/* Barcode Alignment Laser Guide */}
-                {autoBarcode && isReady && (
-                  <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center z-10">
-                    <div className={`w-full h-[1.5px] rounded-full opacity-80 ${
-                      isInvoice
-                        ? 'bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#38bdf8]'
-                        : 'bg-gradient-to-r from-transparent via-fuchsia-400 to-transparent shadow-[0_0_12px_#d946ef]'
-                    }`} />
+                {/* Clean, single-line guide instruction */}
+                <div className="absolute top-[58%] sm:top-[60%] left-0 right-0 pointer-events-none flex justify-center z-10 px-4">
+                  <div className="px-3.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-center shadow-lg">
+                    <p className="text-xs font-medium text-gray-200">
+                      Align <span className={isInvoice ? 'text-cyan-300 font-semibold' : 'text-fuchsia-300 font-semibold'}>
+                        {isInvoice ? 'DN number & barcode' : 'Docket number & barcode'}
+                      </span> inside box
+                    </p>
                   </div>
-                )}
+                </div>
 
                 {/* Banners */}
                 {savedBanner && (
@@ -453,12 +522,7 @@ export function ScannerScreen({ mode, onBack }) {
                 )}
 
                 {/* Capture Controls */}
-                <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center pb-6 pt-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
-                  {/* Engine label */}
-                  <p className="text-xs mb-3 px-3 py-1 rounded-full border border-gray-700 bg-gray-900/80 text-gray-300 backdrop-blur-sm">
-                    {apiKey ? '✨ Cloud AI Vision Active' : '⚡ Offline OCR Active · Tap 🔑 for Cloud AI'}
-                  </p>
-
+                <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center pb-6 pt-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent z-10">
                   {/* Shutter row with Upload button */}
                   <div className="flex items-center gap-6">
                     {/* File / Camera upload button */}
@@ -491,7 +555,7 @@ export function ScannerScreen({ mode, onBack }) {
                     >
                       {isCapturing ? (
                         <div className={`w-10 h-10 border-4 border-gray-300 rounded-full animate-spin ${
-                          isInvoice ? 'border-t-blue-600' : 'border-t-purple-600'
+                          isInvoice ? 'border-t-cyan-600' : 'border-t-fuchsia-600'
                         }`} />
                       ) : (
                         <div className="w-14 h-14 rounded-full bg-white border-2 border-gray-400" />
@@ -508,7 +572,7 @@ export function ScannerScreen({ mode, onBack }) {
                     </button>
                   </div>
 
-                  <p className="text-gray-400 text-xs mt-2">Tap shutter to capture or 📁 to upload</p>
+                  <p className="text-gray-400 text-xs mt-2">Auto-scans barcode inside box · Tap shutter for photo</p>
                 </div>
               </>
             )}
@@ -620,52 +684,73 @@ export function ScannerScreen({ mode, onBack }) {
 
         {/* ─── RESULT FOUND ─────────────────────────────────────────────────── */}
         {phase === PHASE.OK && ocrResult && (
-          <div className="absolute inset-0 flex flex-col">
+          <div className="absolute inset-0 flex flex-col z-20">
             {previewUrl && <img src={previewUrl} alt="Captured" className="w-full flex-1 object-contain bg-black opacity-35" />}
             <div className="absolute inset-x-0 bottom-0 bg-gray-950 rounded-t-3xl border-t border-gray-700 shadow-2xl p-6">
               <div className="flex items-center justify-between mb-4">
-                <span className="text-gray-400 text-sm">{fieldLabel} found</span>
+                <span className="text-gray-400 text-sm font-medium">{fieldLabel} found</span>
                 <div className="flex gap-2">
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${engineBadge.cls}`}>
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${engineBadge.cls}`}>
                     {engineBadge.label}
                   </span>
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
                     ocrResult.confidence === 'HIGH' ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300'
                   }`}>
-                    {ocrResult.confidence === 'HIGH' ? '✓ High confidence' : '⚠ Verify'}
+                    {ocrResult.confidence === 'HIGH' ? '✓ Verified' : '⚠ Verify'}
                   </span>
                 </div>
               </div>
 
-              <div className="bg-gray-800 rounded-2xl px-6 py-5 mb-5 text-center">
+              <div className="bg-gray-800/90 rounded-2xl px-6 py-4 mb-4 text-center border border-gray-700/60">
                 <p className="text-white text-3xl font-mono font-bold tracking-widest break-all">
                   {ocrResult.value}
                 </p>
               </div>
 
-              <div className="flex flex-col gap-3">
-                <button onClick={() => saveValue(ocrResult.value)}
-                  className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl text-lg transition-colors shadow-lg active:scale-98">
-                  ✓ Save this number
+              <div className="flex flex-col gap-2.5">
+                {/* 1. Rapid Scan: Save and scan next immediately */}
+                <button
+                  onClick={() => saveValue(ocrResult.value)}
+                  className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3.5 rounded-2xl text-base transition-colors shadow-lg active:scale-98 flex items-center justify-center gap-2"
+                >
+                  <span>✓</span>
+                  <span>Save &amp; Scan Next {isInvoice ? 'DN' : 'Docket'}</span>
+                </button>
+
+                {/* 2. Rapid Scan: Save and switch mode immediately */}
+                <button
+                  onClick={() => saveValue(ocrResult.value, isInvoice ? 'docket' : 'invoice')}
+                  className={`w-full text-white font-semibold py-3 rounded-2xl text-sm transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 border ${
+                    isInvoice
+                      ? 'bg-fuchsia-900/80 hover:bg-fuchsia-800 border-fuchsia-600 text-fuchsia-100'
+                      : 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-600 text-cyan-100'
+                  }`}
+                >
+                  <span>⇄</span>
+                  <span>Save &amp; Switch to {isInvoice ? '📦 Docket' : '🧾 DN'}</span>
                 </button>
 
                 {/* If scanned via Barcode, offer instant 1-tap "Wrong number? Scan with AI OCR" */}
                 {ocrEngine === 'barcode' && (
                   <button
                     onClick={() => handleProcessImage(previewUrl, null, { forceAI: true })}
-                    className="w-full bg-gradient-to-r from-purple-800 via-indigo-800 to-blue-800 hover:from-purple-700 hover:to-blue-700 text-white font-semibold py-3.5 rounded-2xl text-sm border border-purple-500/50 flex items-center justify-center gap-2 transition-all shadow-md active:scale-98"
+                    className="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium py-2.5 rounded-xl text-xs border border-gray-700 flex items-center justify-center gap-2 transition-all active:scale-98"
                   >
-                    <span>🤖</span> Wrong number? Scan with AI Vision OCR
+                    <span>🤖</span> Wrong number? Scan with AI OCR
                   </button>
                 )}
 
-                <div className="flex gap-3">
-                  <button onClick={() => { setEditValue(ocrResult.value); setShowManual(true); }}
-                    className="flex-1 bg-blue-700 hover:bg-blue-600 text-white font-semibold py-3 rounded-xl transition-colors">
+                <div className="flex gap-2.5">
+                  <button
+                    onClick={() => { setEditValue(ocrResult.value); setShowManual(true); }}
+                    className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold py-2.5 rounded-xl text-sm transition-colors border border-gray-700"
+                  >
                     ✏️ Edit
                   </button>
-                  <button onClick={handleRetry}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 rounded-xl transition-colors">
+                  <button
+                    onClick={handleRetry}
+                    className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold py-2.5 rounded-xl text-sm transition-colors border border-gray-700"
+                  >
                     📷 Retake
                   </button>
                 </div>
@@ -725,7 +810,7 @@ export function ScannerScreen({ mode, onBack }) {
       </div>
 
       {showManual && (
-        <ManualEntryDialog mode={mode} initialValue={editValue || ''}
+        <ManualEntryDialog mode={activeMode} initialValue={editValue || ''}
           onConfirm={handleManualSave} onCancel={() => { setShowManual(false); setEditValue(null); }} />
       )}
 
