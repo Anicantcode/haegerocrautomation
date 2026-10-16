@@ -66,7 +66,7 @@ export function RecordsScreen({ onBack }) {
             <table className="w-full text-sm">
               <thead className="bg-gray-900 text-gray-400 uppercase text-[11px] tracking-wider sticky top-0 z-10 border-b border-gray-800">
                 <tr>
-                  <th className="px-3 py-3 text-left w-16">#</th>
+                  <th className="px-3 py-3 text-left w-10">#</th>
                   <th className="px-3 py-3 text-left">DN No.</th>
                   <th className="px-3 py-3 text-left">Docket No.</th>
                   <th className="px-3 py-3 text-left w-24">📦 Boxes</th>
@@ -77,21 +77,11 @@ export function RecordsScreen({ onBack }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800/60">
-                {displayRecords.map((r, displayIdx) => {
+                {displayRecords.map((r) => {
                   const badge = STATUS_BADGE[r.status] || STATUS_BADGE.COMPLETE;
-                  const isLatest = displayIdx === 0;
                   return (
-                    <tr key={r.id} className={`hover:bg-gray-900/50 transition-colors ${isLatest ? 'bg-cyan-950/20' : ''}`}>
-                      <td className="px-3 py-3 font-mono text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-gray-300 font-bold">#{r.originalIndex}</span>
-                          {isLatest && (
-                            <span className="bg-cyan-950 border border-cyan-600/60 text-cyan-300 text-[10px] px-1.5 py-0.5 rounded font-semibold">
-                              Latest
-                            </span>
-                          )}
-                        </div>
-                      </td>
+                    <tr key={r.id} className="hover:bg-gray-900/50 transition-colors">
+                      <td className="px-3 py-3 text-gray-500 font-mono text-xs">#{r.originalIndex}</td>
                       <td className="px-3 py-3 font-mono font-bold text-cyan-300">{r.dnNumber || '—'}</td>
                       <td className="px-3 py-3 font-mono font-bold text-fuchsia-300">{r.docketNumber || '—'}</td>
                       <td className="px-3 py-2">
@@ -153,28 +143,13 @@ export function RecordsScreen({ onBack }) {
 
           {/* Mobile Cards View */}
           <div className="md:hidden flex flex-col gap-3 p-4">
-            {displayRecords.map((r, displayIdx) => {
+            {displayRecords.map((r) => {
               const badge = STATUS_BADGE[r.status] || STATUS_BADGE.COMPLETE;
-              const isLatest = displayIdx === 0;
               return (
-                <div
-                  key={r.id}
-                  className={`bg-gray-900/90 rounded-2xl p-4 shadow-lg flex flex-col gap-3 transition-all ${
-                    isLatest
-                      ? 'border-2 border-cyan-500/60 shadow-cyan-950/40 ring-1 ring-cyan-500/20'
-                      : 'border border-gray-800'
-                  }`}
-                >
+                <div key={r.id} className="bg-gray-900/90 border border-gray-800 rounded-2xl p-4 shadow-lg flex flex-col gap-3">
                   {/* Top row: # and status badge */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-300 font-bold text-sm">#{r.originalIndex}</span>
-                      {isLatest && (
-                        <span className="bg-cyan-950 text-cyan-300 border border-cyan-600/60 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          ✨ Latest Scan
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-gray-400 font-bold text-sm">#{r.originalIndex}</span>
                     <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold ${badge.cls}`}>
                       {badge.label}
                     </span>
