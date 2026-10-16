@@ -4,9 +4,10 @@ import { ClearSessionDialog } from './ClearSessionDialog.jsx';
 import { ShareModal } from './ShareModal.jsx';
 import { exportToExcel, createExcelFile } from '../export/excelExporter.js';
 
-export function HomeScreen({ onNavigate }) {
+export function HomeScreen({ onNavigate, onBack }) {
   const { state, dispatch } = useApp();
-  const stats = getStats(state.records);
+  const records = state.dispatch?.records || [];
+  const stats = getStats(records);
   const [showClear,      setShowClear]      = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [exportMsg,      setExportMsg]      = useState('');
@@ -14,12 +15,12 @@ export function HomeScreen({ onNavigate }) {
 
   const handleExport = () => {
     try {
-      if (state.records.length === 0) {
+      if (records.length === 0) {
         setExportMsg('❌ No records to export.');
         setTimeout(() => setExportMsg(''), 3000);
         return;
       }
-      const fileData = exportToExcel(state.records);
+      const fileData = exportToExcel(records);
       setLastExported(fileData);
       setExportMsg(`✅ File ready: ${fileData.filename}`);
       setTimeout(() => setExportMsg(''), 6000);
@@ -30,8 +31,8 @@ export function HomeScreen({ onNavigate }) {
   };
 
   const handleShare = () => {
-    if (state.records.length === 0) return;
-    const fileData = createExcelFile(state.records);
+    if (records.length === 0) return;
+    const fileData = createExcelFile(records);
     setLastExported(fileData);
     setShowShareModal(true);
   };
@@ -46,8 +47,17 @@ export function HomeScreen({ onNavigate }) {
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800 px-4 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-white">📄 Invoice &amp; Docket Scanner</h1>
+      <header className="bg-gray-900 border-b border-gray-800 px-4 py-4 flex items-center gap-3">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="text-gray-400 hover:text-white text-2xl leading-none px-1"
+            title="Back to Modules"
+          >
+            ←
+          </button>
+        )}
+        <h1 className="text-xl font-bold text-white">🚚 Dispatch Scanner</h1>
       </header>
 
       {/* Stats */}
@@ -93,7 +103,7 @@ export function HomeScreen({ onNavigate }) {
         <button
           className="btn-primary bg-green-700 hover:bg-green-600"
           onClick={handleExport}
-          disabled={state.records.length === 0}
+          disabled={records.length === 0}
         >
           <span className="text-2xl">📊</span>
           <span>Export to Excel</span>
@@ -122,7 +132,7 @@ export function HomeScreen({ onNavigate }) {
         <button
           className="btn-secondary border border-red-900 text-red-400 mt-2"
           onClick={() => setShowClear(true)}
-          disabled={state.records.length === 0}
+          disabled={records.length === 0}
         >
           <span className="text-xl">🗑️</span>
           <span>Clear Session</span>
@@ -139,7 +149,8 @@ export function HomeScreen({ onNavigate }) {
         <ShareModal
           isOpen={showShareModal}
           fileData={lastExported}
-          records={state.records}
+          records={records}
+          module="dispatch"
           onClose={() => setShowShareModal(false)}
         />
       )}

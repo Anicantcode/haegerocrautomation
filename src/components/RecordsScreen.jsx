@@ -13,7 +13,7 @@ export function RecordsScreen({ onBack }) {
   const [editingRecord, setEditingRecord] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
-  const records = state.records;
+  const records = state.dispatch?.records || [];
   // Newest scanned entry appears first on top, preserving original sequence numbers (#1..#N)
   const displayRecords = records
     .map((r, i) => ({ ...r, originalIndex: i + 1 }))

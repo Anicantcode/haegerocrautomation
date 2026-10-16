@@ -197,4 +197,135 @@ export function formatRecordsForClipboard(records) {
   return `${header}${rows}`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── INVENTORY MODULE EXPORTERS ──────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Creates an Excel workbook from Inventory records.
+ * Columns: Sr No, material, bin, quantity, year, remark
+ */
+export function createInventoryExcelFile(records) {
+  if (!records || records.length === 0) {
+    throw new Error('No inventory records to export.');
+  }
+
+  const wb = XLSX.utils.book_new();
+
+  const header = ['Sr No', 'material', 'bin', 'quantity', 'year', 'remark'];
+  const rows = records.map((r, idx) => [
+    idx + 1,
+    r.material || '',
+    r.bin || '',
+    r.quantity || '',
+    r.year || '',
+    r.remark || '',
+  ]);
+
+  const wsData = [header, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData, { raw: false });
+
+  // Force text format for columns B through F
+  const rowCount = rows.length;
+  for (let row = 1; row <= rowCount; row++) {
+    for (let c = 1; c <= 5; c++) {
+      const addr = XLSX.utils.encode_cell({ r: row, c });
+      if (ws[addr] && ws[addr].v !== '') {
+        ws[addr].t = 's';
+        ws[addr].z = '@';
+      }
+    }
+  }
+
+  ws['!cols'] = [
+    { wch: 8 },   // Sr No
+    { wch: 20 },  // material
+    { wch: 18 },  // bin
+    { wch: 14 },  // quantity
+    { wch: 12 },  // year
+    { wch: 28 },  // remark
+  ];
+
+  ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Inventory Records');
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const filename = `Inventory_Scan_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.xlsx`;
+
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const blob = new Blob([wbout], { type: mimeType });
+  const file = new File([blob], filename, { type: mimeType });
+
+  return { wb, filename, blob, file };
+}
+
+export function exportInventoryToExcel(records) {
+  const fileData = createInventoryExcelFile(records);
+  XLSX.writeFile(fileData.wb, fileData.filename);
+  return fileData;
+}
+
+export function createInventoryCsvFile(records) {
+  if (!records || records.length === 0) {
+    throw new Error('No inventory records to export.');
+  }
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const filename = `Inventory_Scan_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.csv`;
+
+  const escapeCsv = (val) => {
+    if (val === null || val === undefined) return '""';
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const header = ['Sr No', 'material', 'bin', 'quantity', 'year', 'remark'].join(',');
+  const rows = records.map((r, idx) => [
+    idx + 1,
+    escapeCsv(r.material),
+    escapeCsv(r.bin),
+    escapeCsv(r.quantity),
+    escapeCsv(r.year),
+    escapeCsv(r.remark),
+  ].join(',')).join('\r\n');
+
+  const csvContent = '\uFEFF' + header + '\r\n' + rows;
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+  const file = new File([blob], filename, { type: 'text/csv' });
+
+  return { filename, blob, file };
+}
+
+export function formatInventoryRecordsForWhatsApp(records) {
+  if (!records || records.length === 0) return 'No records to share.';
+  const count = records.length;
+  const complete = records.filter(r => r.status === 'COMPLETE').length;
+  const header = `📋 *Inventory Material & Bin Report*\nTotal Records: ${count} (${complete} Complete)\n------------------------------\n`;
+  const lines = records.map((r, i) => {
+    const mat = r.material || '(missing)';
+    const bin = r.bin || '(missing)';
+    const details = [
+      r.quantity ? `Qty: ${r.quantity}` : '',
+      r.year ? `Year: ${r.year}` : '',
+      r.remark ? `Remark: ${r.remark}` : '',
+    ].filter(Boolean).join(' | ');
+
+    return `${i + 1}. Material: ${mat}  |  Bin: ${bin}${details ? `\n   ↳ ${details}` : ''}`;
+  });
+  return `${header}${lines.join('\n')}\n------------------------------\nSent from Inventory Scanner`;
+}
+
+export function formatInventoryRecordsForClipboard(records) {
+  if (!records || records.length === 0) return '';
+  const header = 'Sr No\tmaterial\tbin\tquantity\tyear\tremark\n';
+  const rows = records.map((r, i) =>
+    `${i + 1}\t${r.material || ''}\t${r.bin || ''}\t${r.quantity || ''}\t${r.year || ''}\t${r.remark || ''}`
+  ).join('\n');
+  return `${header}${rows}`;
+}
+
 

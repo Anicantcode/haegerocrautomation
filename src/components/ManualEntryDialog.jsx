@@ -2,12 +2,27 @@ import { useState } from 'react';
 
 export function ManualEntryDialog({ mode, initialValue = '', onConfirm, onCancel }) {
   const [value, setValue] = useState(initialValue);
-  const label = mode === 'invoice' ? 'DN No.' : 'Consignment Note No.';
-  const placeholder = mode === 'invoice' ? 'e.g. 2131537326' : 'e.g. 356953700227462';
+  
+  const isNumeric = mode === 'invoice' || mode === 'docket';
+  const label = mode === 'material'
+    ? 'Material Code'
+    : mode === 'bin'
+    ? 'Bin Location'
+    : mode === 'invoice'
+    ? 'DN No.'
+    : 'Consignment Note No.';
+
+  const placeholder = mode === 'material'
+    ? 'e.g. MAT10234'
+    : mode === 'bin'
+    ? 'e.g. A-12-04'
+    : mode === 'invoice'
+    ? 'e.g. 2131537326'
+    : 'e.g. 356953700227462';
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const trimmed = value.trim().replace(/\s/g, '');
+    const trimmed = isNumeric ? value.trim().replace(/\s/g, '') : value.trim();
     if (trimmed) onConfirm(trimmed);
   };
 
@@ -17,14 +32,14 @@ export function ManualEntryDialog({ mode, initialValue = '', onConfirm, onCancel
         <div className="text-center mb-5">
           <div className="text-blue-400 text-4xl mb-3">✏️</div>
           <h2 className="text-white text-xl font-bold">Enter {label}</h2>
-          <p className="text-gray-400 text-sm mt-1">Type the number manually</p>
+          <p className="text-gray-400 text-sm mt-1">Type the code manually</p>
         </div>
 
         <form onSubmit={handleSubmit}>
           <input
             type="text"
-            inputMode="numeric"
-            pattern="[0-9\s]*"
+            inputMode={isNumeric ? 'numeric' : 'text'}
+            pattern={isNumeric ? '[0-9\s]*' : undefined}
             value={value}
             onChange={e => setValue(e.target.value)}
             placeholder={placeholder}

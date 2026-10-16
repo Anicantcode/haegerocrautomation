@@ -3,9 +3,12 @@ import {
   formatRecordsForClipboard,
   formatRecordsForWhatsApp,
   createCsvFile,
+  formatInventoryRecordsForClipboard,
+  formatInventoryRecordsForWhatsApp,
+  createInventoryCsvFile,
 } from '../export/excelExporter.js';
 
-export function ShareModal({ isOpen, onClose, fileData, records }) {
+export function ShareModal({ isOpen, onClose, fileData, records, module = 'dispatch' }) {
   const [copied, setCopied] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   const [shareErr, setShareErr] = useState('');
@@ -21,16 +24,13 @@ export function ShareModal({ isOpen, onClose, fileData, records }) {
     setIsSharing(true);
     setShareErr('');
     try {
-      // Chromium on Android strictly blocks .xlsx files via Web Share API (throws Permission Denied).
-      // .csv is officially whitelisted in Chromium and opens directly in Excel, Google Sheets, & WhatsApp as a spreadsheet document.
-      // iOS Safari allows .xlsx files.
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
       let fileToShare;
 
       if (isIOS && fileData?.file) {
         fileToShare = fileData.file;
       } else {
-        const csv = createCsvFile(records);
+        const csv = module === 'inventory' ? createInventoryCsvFile(records) : createCsvFile(records);
         fileToShare = csv.file;
       }
 
@@ -48,12 +48,10 @@ export function ShareModal({ isOpen, onClose, fileData, records }) {
       setShareErr('Spreadsheet file saved to Downloads! You can attach it via WhatsApp or email.');
     } catch (err) {
       if (err.name === 'AbortError') {
-        // User cancelled / dismissed the native share sheet
         setIsSharing(false);
         return;
       }
       console.warn('Share failed:', err);
-      // Fallback: download the file
       handleDownload();
       setShareErr(
         `Direct share restricted by browser (${err.message || 'Permission Denied'}). File saved to your Downloads!`
@@ -84,7 +82,9 @@ export function ShareModal({ isOpen, onClose, fileData, records }) {
   // 3. Share formatted WhatsApp Text Summary
   const handleWhatsAppText = () => {
     try {
-      const text = formatRecordsForWhatsApp(records);
+      const text = module === 'inventory'
+        ? formatInventoryRecordsForWhatsApp(records)
+        : formatRecordsForWhatsApp(records);
       const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
       window.open(url, '_blank');
     } catch (e) {
@@ -95,7 +95,9 @@ export function ShareModal({ isOpen, onClose, fileData, records }) {
   // 4. Copy records table to clipboard
   const handleCopy = async () => {
     try {
-      const text = formatRecordsForClipboard(records);
+      const text = module === 'inventory'
+        ? formatInventoryRecordsForClipboard(records)
+        : formatRecordsForClipboard(records);
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);

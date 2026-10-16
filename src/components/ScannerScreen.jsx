@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useApp, ACTIONS, isDuplicateDN, isDuplicateDocket } from '../context/AppContext.jsx';
+import { useApp, ACTIONS, isDuplicateDN, isDuplicateDocket, isDuplicateMaterial } from '../context/AppContext.jsx';
 import { useCamera } from '../hooks/useCamera.js';
 import { recognizeWithPaddle } from '../ocr/paddleProcessor.js';
 import { initOCR, recognizeImage } from '../ocr/ocrProcessor.js';
 import { extractDNNumber } from '../ocr/invoiceExtractor.js';
 import { extractDocketNumber } from '../ocr/docketExtractor.js';
+import { extractInventoryCode } from '../ocr/inventoryExtractor.js';
 import { scanBarcode } from '../ocr/barcodeScanner.js';
 import { ManualEntryDialog } from './ManualEntryDialog.jsx';
 
@@ -24,9 +25,12 @@ function vibrate() { try { navigator.vibrate?.(150); } catch (_) {} }
 
 const PHASE = { PREVIEW: 'preview', PROCESSING: 'processing', OK: 'ok', NONE: 'none' };
 
-export function ScannerScreen({ mode, onBack }) {
+export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
   const { state, dispatch } = useApp();
   const { videoRef, isReady, error: camError, startCamera, stopCamera, captureFrame, ensureVideo } = useCamera();
+
+  const isInventory = module === 'inventory';
+  const records = isInventory ? (state.inventory?.records || []) : (state.dispatch?.records || []);
 
   const [phase,         setPhase]         = useState(PHASE.PREVIEW);
   const [previewUrl,    setPreviewUrl]     = useState(null);
@@ -42,16 +46,17 @@ export function ScannerScreen({ mode, onBack }) {
   const [showManual,    setShowManual]     = useState(false);
   const [savedBanner,   setSavedBanner]    = useState('');
   const [dupWarning,    setDupWarning]     = useState('');
-  const [activeMode,    setActiveMode]    = useState(mode);
+  const [activeMode,    setActiveMode]    = useState(mode || (isInventory ? 'material' : 'invoice'));
   const [isCapturing,   setIsCapturing]   = useState(false);
   const [autoBarcode,   setAutoBarcode]    = useState(() => localStorage.getItem('haeger_auto_barcode') !== 'false');
   const scanningBarcodeRef = useRef(false);
   const lastScannedBarcodeRef = useRef('');
   const barcodeCooldownRef = useRef(0);
 
-  const isInvoice  = activeMode === 'invoice';
-  const modeLabel  = isInvoice ? 'Invoice' : 'Docket';
-  const fieldLabel = isInvoice ? 'DN No.'  : 'Docket / Consignment No.';
+  const isPrimaryMode = isInventory ? activeMode === 'material' : activeMode === 'invoice';
+  const isInvoice     = isPrimaryMode;
+  const modeLabel     = isInventory ? (isPrimaryMode ? 'Material' : 'Bin') : (isPrimaryMode ? 'Invoice' : 'Docket');
+  const fieldLabel    = isInventory ? (isPrimaryMode ? 'Material' : 'Bin') : (isPrimaryMode ? 'DN No.' : 'Docket / Consignment No.');
 
   useEffect(() => { startCamera(); return () => stopCamera(); }, []); // eslint-disable-line
 
@@ -76,11 +81,14 @@ export function ScannerScreen({ mode, onBack }) {
               return;
             }
 
-            // Check for duplicates ONLY for Invoice (DN No). Docket numbers CAN be duplicate!
-            const isDup = activeMode === 'invoice' && isDuplicateDN(rawCandidate, state.records);
+            // Check for duplicates (DN for dispatch, Material for inventory)
+            const isDup = isInventory
+              ? (activeMode === 'material' && isDuplicateMaterial(rawCandidate, records))
+              : (activeMode === 'invoice' && isDuplicateDN(rawCandidate, records));
 
             if (isDup) {
-              setDupWarning(`⚠️ DN ${rawCandidate} already scanned.`);
+              const itemType = isInventory ? 'Material' : 'DN';
+              setDupWarning(`⚠️ ${itemType} ${rawCandidate} already scanned.`);
               setTimeout(() => setDupWarning(''), 3500);
             } else {
               // Capture the current camera frame for the preview background
@@ -112,7 +120,7 @@ export function ScannerScreen({ mode, onBack }) {
       active = false;
       clearInterval(interval);
     };
-  }, [phase, isReady, autoBarcode, camError, activeMode, state.records, captureFrame]);
+  }, [phase, isReady, autoBarcode, camError, activeMode, isInventory, records, captureFrame]);
 
   const handleSetEngine = (choice) => {
     setEngineChoice(choice);
@@ -121,25 +129,42 @@ export function ScannerScreen({ mode, onBack }) {
 
   // ── Save confirmed value ─────────────────────────────────────────────────────
   const saveValue = useCallback((value, nextMode = null) => {
-    // Only DN numbers must be unique. Dockets can be duplicate across multiple invoices.
-    const isDup = activeMode === 'invoice' && isDuplicateDN(value, state.records);
+    // Check for duplicates
+    const isDup = isInventory
+      ? (activeMode === 'material' && isDuplicateMaterial(value, records))
+      : (activeMode === 'invoice' && isDuplicateDN(value, records));
+
     if (isDup) {
-      setDupWarning(`⚠️ DN ${value} already scanned.`);
+      const itemType = isInventory ? 'Material' : 'DN';
+      setDupWarning(`⚠️ ${itemType} ${value} already scanned.`);
       setTimeout(() => setDupWarning(''), 3500);
       return;
     }
-    dispatch({ type: activeMode === 'invoice' ? ACTIONS.ADD_INVOICE : ACTIONS.ADD_DOCKET, payload: value });
+
+    if (isInventory) {
+      dispatch({
+        type: activeMode === 'material' ? ACTIONS.ADD_MATERIAL : ACTIONS.ADD_BIN,
+        payload: value
+      });
+    } else {
+      dispatch({
+        type: activeMode === 'invoice' ? ACTIONS.ADD_INVOICE : ACTIONS.ADD_DOCKET,
+        payload: value
+      });
+    }
     playBeep(); vibrate();
 
     // Prevent re-triggering auto-scan on this exact barcode for 2.5 seconds
     lastScannedBarcodeRef.current = value;
     barcodeCooldownRef.current = Date.now() + 2500;
 
-    const savedType = activeMode === 'invoice' ? 'DN' : 'Docket';
+    const savedType = isInventory
+      ? (activeMode === 'material' ? 'Material' : 'Bin')
+      : (activeMode === 'invoice' ? 'DN' : 'Docket');
     setSavedBanner(`✅ Saved ${savedType}: ${value}`);
     setTimeout(() => setSavedBanner(''), 3000);
 
-    if (nextMode && (nextMode === 'invoice' || nextMode === 'docket')) {
+    if (nextMode) {
       setActiveMode(nextMode);
     }
 
@@ -147,7 +172,7 @@ export function ScannerScreen({ mode, onBack }) {
     setOcrResult(null);
     setPreviewUrl(null);
     ensureVideo();
-  }, [activeMode, state.records, dispatch, ensureVideo]);
+  }, [activeMode, isInventory, records, dispatch, ensureVideo]);
 
   // ── Core OCR processing function (works for both camera and file upload) ──
   const handleProcessImage = useCallback(async (imageDataUrl, processedCanvas = null, options = {}) => {
@@ -200,9 +225,11 @@ export function ScannerScreen({ mode, onBack }) {
         const target = processedCanvas || imageDataUrl;
         const data = await recognizeWithPaddle(target, (msg) => setProcessingMsg(msg));
         setProcessingMsg(`Locating ${fieldLabel} in ${modeLabel}…`);
-        const result = isInvoice
-          ? extractDNNumber(data.text, data.words)
-          : extractDocketNumber(data.text, data.words);
+        const result = isInventory
+          ? extractInventoryCode(data.text, data.words, activeMode)
+          : (isInvoice
+              ? extractDNNumber(data.text, data.words)
+              : extractDocketNumber(data.text, data.words));
 
         if (result && result.value && result.confidence !== 'LOW') {
           setOcrResult({ ...result, rawText: data.text });
@@ -249,9 +276,11 @@ export function ScannerScreen({ mode, onBack }) {
       const target = processedCanvas || imageDataUrl;
       const data   = await recognizeImage(target);
       setProcessingMsg(`Locating ${fieldLabel} in text…`);
-      const result = isInvoice
-        ? extractDNNumber(data.text, data.words)
-        : extractDocketNumber(data.text, data.words);
+      const result = isInventory
+        ? extractInventoryCode(data.text, data.words, activeMode)
+        : (isInvoice
+            ? extractDNNumber(data.text, data.words)
+            : extractDocketNumber(data.text, data.words));
       setOcrResult({ ...result, rawText: data.text });
       setPhase(result.value && result.confidence !== 'LOW' ? PHASE.OK : PHASE.NONE);
     } catch (err) {
@@ -259,7 +288,7 @@ export function ScannerScreen({ mode, onBack }) {
       setLastOcrError(`Tesseract error: ${err.message}`);
       setPhase(PHASE.NONE);
     }
-  }, [activeMode, isInvoice, engineChoice, modeLabel, fieldLabel, autoBarcode]);
+  }, [activeMode, isInvoice, isInventory, engineChoice, modeLabel, fieldLabel, autoBarcode]);
 
   // ── Capture from camera ──────────────────────────────────────────────────────
   const handleCapture = useCallback(async () => {
@@ -304,34 +333,69 @@ export function ScannerScreen({ mode, onBack }) {
           
           {/* Quick In-Camera Mode Switcher */}
           <div className="flex items-center bg-gray-900/90 p-0.5 rounded-xl border border-gray-700/80">
-            <button
-              onClick={() => {
-                setActiveMode('invoice');
-                setPhase(PHASE.PREVIEW);
-                ensureVideo();
-              }}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
-                isInvoice
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              🧾 DN
-            </button>
-            <button
-              onClick={() => {
-                setActiveMode('docket');
-                setPhase(PHASE.PREVIEW);
-                ensureVideo();
-              }}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
-                !isInvoice
-                  ? 'bg-fuchsia-600 text-white shadow'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              📦 Docket
-            </button>
+            {isInventory ? (
+              <>
+                <button
+                  onClick={() => {
+                    setActiveMode('material');
+                    setPhase(PHASE.PREVIEW);
+                    ensureVideo();
+                  }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                    isPrimaryMode
+                      ? 'bg-cyan-600 text-white shadow'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  🏷️ Material
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveMode('bin');
+                    setPhase(PHASE.PREVIEW);
+                    ensureVideo();
+                  }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                    !isPrimaryMode
+                      ? 'bg-fuchsia-600 text-white shadow'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  📍 Bin
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => {
+                    setActiveMode('invoice');
+                    setPhase(PHASE.PREVIEW);
+                    ensureVideo();
+                  }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                    isInvoice
+                      ? 'bg-cyan-600 text-white shadow'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  🧾 DN
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveMode('docket');
+                    setPhase(PHASE.PREVIEW);
+                    ensureVideo();
+                  }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                    !isInvoice
+                      ? 'bg-fuchsia-600 text-white shadow'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  📦 Docket
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -366,7 +430,7 @@ export function ScannerScreen({ mode, onBack }) {
           </select>
 
           <div className="text-xs text-green-400 font-semibold pl-0.5">
-            {state.records.filter(r=>r.status==='COMPLETE').length}✓
+            {records.filter(r=>r.status==='COMPLETE').length}✓
           </div>
         </div>
       </header>
@@ -452,8 +516,10 @@ export function ScannerScreen({ mode, onBack }) {
                 <div className="absolute top-[58%] sm:top-[60%] left-0 right-0 pointer-events-none flex justify-center z-10 px-4">
                   <div className="px-3.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-center shadow-lg">
                     <p className="text-xs font-medium text-gray-200">
-                      Align <span className={isInvoice ? 'text-cyan-300 font-semibold' : 'text-fuchsia-300 font-semibold'}>
-                        {isInvoice ? 'DN number & barcode' : 'Docket number & barcode'}
+                      Align <span className={isPrimaryMode ? 'text-cyan-300 font-semibold' : 'text-fuchsia-300 font-semibold'}>
+                        {isInventory
+                          ? (isPrimaryMode ? 'Material code & barcode' : 'Bin location & barcode')
+                          : (isInvoice ? 'DN number & barcode' : 'Docket number & barcode')}
                       </span> inside box
                     </p>
                   </div>
@@ -664,20 +730,33 @@ export function ScannerScreen({ mode, onBack }) {
                   className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3.5 rounded-2xl text-base transition-colors shadow-lg active:scale-98 flex items-center justify-center gap-2"
                 >
                   <span>✓</span>
-                  <span>Save &amp; Scan Next {isInvoice ? 'DN' : 'Docket'}</span>
+                  <span>
+                    Save &amp; Scan Next {isInventory ? (isPrimaryMode ? 'Material' : 'Bin') : (isInvoice ? 'DN' : 'Docket')}
+                  </span>
                 </button>
 
                 {/* 2. Rapid Scan: Save and switch mode immediately */}
                 <button
-                  onClick={() => saveValue(ocrResult.value, isInvoice ? 'docket' : 'invoice')}
+                  onClick={() => saveValue(
+                    ocrResult.value,
+                    isInventory
+                      ? (isPrimaryMode ? 'bin' : 'material')
+                      : (isInvoice ? 'docket' : 'invoice')
+                  )}
                   className={`w-full text-white font-semibold py-3 rounded-2xl text-sm transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 border ${
-                    isInvoice
+                    isPrimaryMode
                       ? 'bg-fuchsia-900/80 hover:bg-fuchsia-800 border-fuchsia-600 text-fuchsia-100'
                       : 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-600 text-cyan-100'
                   }`}
                 >
                   <span>⇄</span>
-                  <span>Save &amp; Switch to {isInvoice ? '📦 Docket' : '🧾 DN'}</span>
+                  <span>
+                    Save &amp; Switch to {
+                      isInventory
+                        ? (isPrimaryMode ? '📍 Bin' : '🏷️ Material')
+                        : (isInvoice ? '📦 Docket' : '🧾 DN')
+                    }
+                  </span>
                 </button>
 
                 {/* If scanned via Barcode, offer instant 1-tap fallback to text OCR */}
