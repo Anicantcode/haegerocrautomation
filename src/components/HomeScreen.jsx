@@ -47,14 +47,7 @@ export function HomeScreen({ onNavigate }) {
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* Header */}
       <header className="bg-gray-900 border-b border-gray-800 px-4 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">📄 Invoice &amp; Docket Scanner</h1>
-          <p className="text-gray-400 text-xs mt-0.5">Scan · Pair · Export</p>
-        </div>
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-emerald-950/80 border-emerald-700/60 text-emerald-300">
-          <span>⚡</span>
-          <span>Offline Ready</span>
-        </div>
+        <h1 className="text-xl font-bold text-white">📄 Invoice &amp; Docket Scanner</h1>
       </header>
 
       {/* Stats */}
