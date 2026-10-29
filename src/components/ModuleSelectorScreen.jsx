@@ -61,6 +61,21 @@ export function ModuleSelectorScreen({ onSelectModule }) {
                 </div>
                 <span className="text-purple-200 font-bold">➔</span>
               </button>
+
+              {/* Print Box Label */}
+              <button
+                onClick={() => onSelectModule('print-label')}
+                className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-between transition-all active:scale-98 shadow-md"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🏷️</span>
+                  <div className="text-left">
+                    <div className="text-sm font-bold">Print Box Label</div>
+                    <div className="text-xs text-emerald-200">Scan DN, enter box &amp; materials, print sticker</div>
+                  </div>
+                </div>
+                <span className="text-emerald-200 font-bold">➔</span>
+              </button>
             </div>
           )}
         </div>

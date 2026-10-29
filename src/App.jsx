@@ -6,6 +6,7 @@ import { ScannerScreen } from './components/ScannerScreen.jsx';
 import { RecordsScreen } from './components/RecordsScreen.jsx';
 import { InventoryHomeScreen } from './components/InventoryHomeScreen.jsx';
 import { InventoryRecordsScreen } from './components/InventoryRecordsScreen.jsx';
+import { PrintLabelScreen } from './components/PrintLabelScreen.jsx';
 
 export default function App() {
   const [selectedModule, setSelectedModule] = useState(() => {
@@ -76,6 +77,10 @@ export default function App() {
               <InventoryRecordsScreen onBack={() => setScreen('home')} />
             )}
           </>
+        )}
+
+        {selectedModule === 'print-label' && (
+          <PrintLabelScreen onBack={handleBackToModules} />
         )}
       </div>
     </AppProvider>

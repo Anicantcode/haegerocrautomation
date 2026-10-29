@@ -56,3 +56,34 @@
   box-shadow: 0 0 20px #d946ef;
 }
 
+/* ── Thermal Printer Print Media Rules (TSC Alpha-3RB / 72mm Roll) ── */
+@media print {
+  @page {
+    size: 72mm auto;
+    margin: 0;
+  }
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 72mm !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #thermal-print-area, #thermal-print-area * {
+    visibility: visible !important;
+  }
+  #thermal-print-area {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 72mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+
