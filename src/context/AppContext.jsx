@@ -253,7 +253,8 @@ export function isDuplicateDocket(docketNumber, records = []) {
 }
 
 export function isDuplicateMaterial(material, records = []) {
-  return records.some(r => r.material === material);
+  // Allow duplicate / double material scans in Inventory
+  return false;
 }
 
 export function isDuplicateBin(bin, records = []) {
