@@ -98,6 +98,11 @@ export function validateDocketNumber(raw, options = {}) {
     return { value: cleaned, confidence: 'LOW', isPhone: true };
   }
 
+  // Exclude 6-digit Indian postal PIN codes
+  if (isPinCode(cleaned)) {
+    return { value: cleaned, confidence: 'LOW', isPin: true };
+  }
+
   // If unlabelled candidate, reject potential 10-digit mobile numbers [6-9]xxxxxxxxx
   if (!allowPotentialMobile && isPotentialMobileNumber(cleaned)) {
     return { value: cleaned, confidence: 'LOW', isPhone: true };
