@@ -15,6 +15,8 @@ class PrinterService {
     this.type = null;             // 'serial' | 'bluetooth' | null
     this.deviceName = '';
     this.listeners = new Set();
+    this._activeWriter = null;
+    this._bleDisconnectHandler = null;
   }
 
   subscribe(listener) {
@@ -48,6 +50,9 @@ class PrinterService {
       throw new Error('Web Serial API is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
     }
 
+    // Clean up any existing connection first
+    await this.disconnect();
+
     try {
       this.status = 'connecting';
       this.notify();
@@ -70,10 +75,7 @@ class PrinterService {
 
       return true;
     } catch (err) {
-      this.status = 'disconnected';
-      this.type = null;
-      this.serialPort = null;
-      this.notify();
+      await this.disconnect();
       if (err.name === 'NotFoundError') {
         throw new Error('No port selected.');
       }
@@ -88,6 +90,9 @@ class PrinterService {
     if (typeof navigator === 'undefined' || !('bluetooth' in navigator)) {
       throw new Error('Web Bluetooth API is not supported in this browser. Please use Chrome on Android/Windows.');
     }
+
+    // Clean up any existing connection first
+    await this.disconnect();
 
     try {
       this.status = 'connecting';
@@ -135,17 +140,14 @@ class PrinterService {
       this.deviceName = device.name || 'Printer (Bluetooth)';
       this.notify();
 
-      device.addEventListener('gattserverdisconnected', () => {
+      this._bleDisconnectHandler = () => {
         this.disconnect();
-      });
+      };
+      device.addEventListener('gattserverdisconnected', this._bleDisconnectHandler);
 
       return true;
     } catch (err) {
-      this.status = 'disconnected';
-      this.type = null;
-      this.bleDevice = null;
-      this.bleCharacteristic = null;
-      this.notify();
+      await this.disconnect();
       if (err.name === 'NotFoundError') {
         throw new Error('No Bluetooth device selected.');
       }
@@ -154,16 +156,39 @@ class PrinterService {
   }
 
   /**
-   * Disconnect any active connection
+   * Disconnect any active connection safely releasing all stream locks
    */
   async disconnect() {
     try {
+      if (this._activeWriter) {
+        try {
+          this._activeWriter.releaseLock();
+        } catch (_) {}
+        this._activeWriter = null;
+      }
+
       if (this.serialPort) {
-        try { await this.serialPort.close(); } catch (_) {}
+        if (this.serialPort.ondisconnect) {
+          this.serialPort.ondisconnect = null;
+        }
+        try {
+          await this.serialPort.close();
+        } catch (_) {}
         this.serialPort = null;
       }
-      if (this.bleDevice && this.bleDevice.gatt.connected) {
-        try { this.bleDevice.gatt.disconnect(); } catch (_) {}
+
+      if (this.bleDevice) {
+        if (this._bleDisconnectHandler) {
+          try {
+            this.bleDevice.removeEventListener('gattserverdisconnected', this._bleDisconnectHandler);
+          } catch (_) {}
+          this._bleDisconnectHandler = null;
+        }
+        if (this.bleDevice.gatt && this.bleDevice.gatt.connected) {
+          try {
+            this.bleDevice.gatt.disconnect();
+          } catch (_) {}
+        }
         this.bleDevice = null;
         this.bleCharacteristic = null;
       }
@@ -171,14 +196,15 @@ class PrinterService {
       this.status = 'disconnected';
       this.type = null;
       this.deviceName = '';
+      this._activeWriter = null;
       this.notify();
     }
   }
 
   /**
-   * Send raw TSPL ASCII string to printer
+   * Send raw TSPL ASCII string to printer with timeout protection
    */
-  async printDirect(tsplString) {
+  async printDirect(tsplString, timeoutMs = 8000) {
     if (this.status !== 'connected') {
       throw new Error('Printer is not connected.');
     }
@@ -186,32 +212,51 @@ class PrinterService {
     const encoder = new TextEncoder();
     const data = encoder.encode(tsplString);
 
-    if (this.type === 'serial' && this.serialPort?.writable) {
-      const writer = this.serialPort.writable.getWriter();
-      try {
-        await writer.write(data);
-      } finally {
-        writer.releaseLock();
-      }
-      return true;
-    }
-
-    if (this.type === 'bluetooth' && this.bleCharacteristic) {
-      // Chunk into 100-byte packets for BLE MTU limits
-      const chunkSize = 100;
-      for (let i = 0; i < data.length; i += chunkSize) {
-        const slice = data.slice(i, i + chunkSize);
-        if (this.bleCharacteristic.properties.writeWithoutResponse) {
-          await this.bleCharacteristic.writeValueWithoutResponse(slice);
-        } else {
-          await this.bleCharacteristic.writeValue(slice);
+    const executePrint = async () => {
+      if (this.type === 'serial' && this.serialPort?.writable) {
+        const writer = this.serialPort.writable.getWriter();
+        this._activeWriter = writer;
+        try {
+          await writer.write(data);
+        } finally {
+          try {
+            writer.releaseLock();
+          } catch (_) {}
+          this._activeWriter = null;
         }
-        await new Promise((r) => setTimeout(r, 20));
+        return true;
       }
-      return true;
-    }
 
-    throw new Error('Printer connection channel is not writable.');
+      if (this.type === 'bluetooth' && this.bleCharacteristic) {
+        // Chunk into 100-byte packets for BLE MTU limits
+        const chunkSize = 100;
+        for (let i = 0; i < data.length; i += chunkSize) {
+          const slice = data.slice(i, i + chunkSize);
+          if (this.bleCharacteristic.properties.writeWithoutResponse) {
+            await this.bleCharacteristic.writeValueWithoutResponse(slice);
+          } else {
+            await this.bleCharacteristic.writeValue(slice);
+          }
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        return true;
+      }
+
+      throw new Error('Printer connection channel is not writable.');
+    };
+
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`Print request timed out after ${timeoutMs / 1000}s`));
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([executePrint(), timeoutPromise]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
