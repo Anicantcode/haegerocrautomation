@@ -37,4 +37,34 @@ describe('invoiceExtractor', () => {
     const res = extractDNNumber('Just plain text with no invoice numbers');
     expect(res?.value || '').toBe('');
   });
+
+  it('extracts DN via word bounding box proximity', () => {
+    const words = [
+      { text: 'DN No', confidence: 90, bbox: { x0: 20, y0: 100, x1: 80, y1: 120 } },
+      { text: '2134621450', confidence: 95, bbox: { x0: 90, y0: 100, x1: 200, y1: 120 } },
+    ];
+    const res = extractDNNumber('', words);
+    expect(res.value).toBe('2134621450');
+  });
+
+  it('falls back to standalone 10-digit DN number anywhere in text', () => {
+    const text = `
+      INVOICE DOCUMENT
+      BATCH 2134621450
+      ITEMS INCLUDED
+    `;
+    const res = extractDNNumber(text);
+    expect(res.value).toBe('2134621450');
+  });
+
+  it('does not mistakenly capture TO No when on next line', () => {
+    const text = `
+      DELIVERY NOTE
+      TO No 98765432
+      DATE 2026-10-31
+    `;
+    const res = extractDNNumber(text);
+    // TO No is excluded from being captured as DN
+    expect(res.value).not.toBe('98765432');
+  });
 });

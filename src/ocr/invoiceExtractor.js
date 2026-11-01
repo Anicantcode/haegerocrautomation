@@ -59,11 +59,14 @@ export function extractDNNumber(text, words = []) {
     }
   }
 
-  // ── Strategy 4: standalone 8-12 digit number anywhere in text ──────────────
-  const allNums = (text.match(/\b\d{8,12}\b/g) || []).filter(n => !isLikelyArtefact(n));
-  for (const num of allNums) {
-    const r = validateDNNumber(num);
-    if (r.confidence !== 'LOW' && !r.isPhone) return { ...r, confidence: 'MEDIUM' };
+  // ── Strategy 4: standalone 8-12 digit number on non-conflicting lines ─────
+  for (const line of lines) {
+    if (OTHER_LABEL_RE.test(line)) continue;
+    const allNums = (line.match(/\b\d{8,12}\b/g) || []).filter(n => !isLikelyArtefact(n));
+    for (const num of allNums) {
+      const r = validateDNNumber(num);
+      if (r.confidence !== 'LOW' && !r.isPhone) return { ...r, confidence: 'MEDIUM' };
+    }
   }
 
   return { value: '', confidence: 'LOW' };

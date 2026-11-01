@@ -42,4 +42,40 @@ describe('docketExtractor', () => {
     const res = extractDocketNumber(text);
     expect(res.value).toBe('987654321');
   });
+
+  it('extracts docket number printed on the line below the label', () => {
+    const text = `
+      TRANSPORT VENDOR
+      DOCKET NO:
+      9876543210
+      Pieces: 4
+    `;
+    const res = extractDocketNumber(text);
+    expect(res.value).toBe('9876543210');
+  });
+
+  it('falls back to E-Way bill when docket is absent', () => {
+    const text = `
+      TAX INVOICE
+      E-Way Bill No: 121012345678
+      Transporter: SafeExpress
+    `;
+    const res = extractDocketNumber(text);
+    expect(res.value).toBe('121012345678');
+  });
+
+  it('extracts docket via word bounding box proximity', () => {
+    const words = [
+      { text: 'Docket', confidence: 95, bbox: { x0: 10, y0: 50, x1: 60, y1: 70 } },
+      { text: '9988776655', confidence: 92, bbox: { x0: 70, y0: 50, x1: 150, y1: 70 } },
+    ];
+    const res = extractDocketNumber('', words);
+    expect(res.value).toBe('9988776655');
+  });
+
+  it('handles empty input gracefully', () => {
+    const res = extractDocketNumber('', []);
+    expect(res.value).toBe('');
+    expect(res.confidence).toBe('LOW');
+  });
 });
