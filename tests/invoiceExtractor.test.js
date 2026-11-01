@@ -4,7 +4,7 @@ import { extractDNNumber } from '../src/ocr/invoiceExtractor.js';
 describe('invoiceExtractor', () => {
   it('extracts inline DN number with colon', () => {
     const text = `
-      HAEGER LOGISTICS
+      GLOBAL LOGISTICS
       DELIVERY CHALLAN
       DN No: 2134621450
       Date: 25-10-2026

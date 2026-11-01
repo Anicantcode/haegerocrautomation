@@ -1,12 +1,12 @@
 # Agent Instructions & Architecture Guide (AGENTS.md)
 
-Welcome! This document provides architectural context, domain constraints, critical hardware rules, and testing standards for AI agents working on the **Haeger India Logistics & Warehouse PWA**.
+Welcome! This document provides architectural context, domain constraints, critical hardware rules, and testing standards for AI agents working on the **Warehouse & Logistics Automation PWA** (independent personal project designed for enterprise distribution and commercial logistics).
 
 ---
 
 ## 1. Project Overview & Context
 
-This application is an **offline-capable, warehouse-grade Progressive Web App (PWA)** built for warehouse operators, dispatch teams, and inventory handlers at Haeger India. It runs primarily on Android mobile devices, rugged warehouse handhelds (e.g., Zebra, Honeywell), and desktop Chrome/Edge terminals.
+This application is an **offline-capable, warehouse-grade Progressive Web App (PWA)** built for warehouse operators, dispatch teams, and inventory handlers across commercial distribution centers. It runs primarily on Android mobile devices, rugged warehouse handhelds (e.g., Zebra, Honeywell), and desktop Chrome/Edge terminals.
 
 ### Core Modules:
 1. **Dispatch Module (`/dispatch`)**:
@@ -31,7 +31,7 @@ This application is an **offline-capable, warehouse-grade Progressive Web App (P
 ## 2. Directory Structure & Key Files
 
 ```
-haeger/
+project/
 ├── src/
 │   ├── components/
 │   │   ├── ScannerScreen.jsx          # Live camera viewfinder, OCR/barcode orchestration
@@ -85,12 +85,12 @@ Before completing any task or claiming work is done:
 3. If adding or modifying domain logic, write corresponding unit tests in `tests/`.
 
 ### Rule 4: TSPL Command Sanitization
-- When modifying [`src/printer/tsplGenerator.js`](file:///c:/Users/Lenovo/Desktop/haeger/src/printer/tsplGenerator.js), **always sanitize string fields** (item codes, remarks, box numbers) using `sanitizeTSPLString()`.
+- When modifying `src/printer/tsplGenerator.js`, **always sanitize string fields** (item codes, remarks, box numbers) using `sanitizeTSPLString()`.
 - Unescaped double quotes (`"`) or newline/carriage return characters (`\r`, `\n`) break TSC printer command buffers or trigger syntax errors on thermal hardware.
 
 ### Rule 5: Camera & Hardware Resource Hygiene
-- **Camera Streams**: Always ensure all `MediaStreamTrack` instances are stopped (`track.stop()`) on unmount or mode transition in [`src/hooks/useCamera.js`](file:///c:/Users/Lenovo/Desktop/haeger/src/hooks/useCamera.js).
-- **Web Serial / Bluetooth**: Always release stream writer locks in a `finally` block (`writer.releaseLock()`) in [`src/printer/printerService.js`](file:///c:/Users/Lenovo/Desktop/haeger/src/printer/printerService.js). Disconnects must clean up event listeners to avoid memory leaks.
+- **Camera Streams**: Always ensure all `MediaStreamTrack` instances are stopped (`track.stop()`) on unmount or mode transition in `src/hooks/useCamera.js`.
+- **Web Serial / Bluetooth**: Always release stream writer locks in a `finally` block (`writer.releaseLock()`) in `src/printer/printerService.js`. Disconnects must clean up event listeners to avoid memory leaks.
 
 ### Rule 6: Rollup / Vite Code-Splitting Rules
 - `ppu-paddle-ocr/web` must be dynamically imported via `import('ppu-paddle-ocr/web')`.

@@ -1,12 +1,12 @@
-# Haeger India — Warehouse & Logistics Automation PWA
+# Warehouse & Logistics Automation PWA
 
 [![Vite](https://img.shields.io/badge/Vite-5.4-646CFF?style=flat&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?style=flat&logo=react&logoColor=black)](https://react.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 [![Vitest](https://img.shields.io/badge/Vitest-2.1-FCC72B?style=flat&logo=vitest&logoColor=black)](https://vitest.dev/)
-[![License](https://img.shields.io/badge/License-Proprietary-red.svg)]()
+[![Status](https://img.shields.io/badge/Status-Personal%20Project-success.svg)]()
 
-An offline-first, warehouse-grade Progressive Web App (PWA) engineered for dispatch tracking, inventory bin allocation, and direct thermal box label printing for Haeger India. Designed for Android smartphones, rugged handheld terminals (Zebra, Honeywell), and desktop Chrome/Edge workstations.
+An offline-first, warehouse-grade Progressive Web App (PWA) engineered for dispatch tracking, inventory bin allocation, and direct thermal box label printing across enterprise and commercial warehouses. Built as an extensible, vendor-agnostic logistics solution designed for manufacturing plants, distribution hubs, and third-party logistics (3PL) providers.
 
 ---
 
@@ -41,7 +41,7 @@ An offline-first, warehouse-grade Progressive Web App (PWA) engineered for dispa
 ### 5. Warehouse Data Export & Sharing
 - **Excel (.xlsx)**: Generates workbooks with text-encoded columns (`@`) to prevent spreadsheet software from corrupting numeric IDs into scientific notation.
 - **CSV with UTF-8 BOM**: Ensures proper character decoding across all versions of Excel on Windows and mobile devices.
-- **WhatsApp Summary**: Formats formatted text reports for dispatch notifications.
+- **WhatsApp Summary**: Formats clean text reports for instant dispatch notifications.
 - **Clipboard Sync**: One-tap tab-delimited copying for fast pasting into ERP and Google Sheets.
 
 ---
@@ -131,6 +131,6 @@ npm run preview
 
 ---
 
-## 📄 License
+## 📄 Project Status & Commercial Inquiries
 
-Internal proprietary software developed for **Haeger India**. All rights reserved.
+This is an independent personal project engineered for modern warehouse operations and supply-chain logistics. It is not affiliated with, sponsored by, or proprietary to any third party. The platform is modular, multi-tenant capable, and available for commercial licensing, customization, and enterprise deployment across manufacturing and logistics companies.
