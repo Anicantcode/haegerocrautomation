@@ -249,24 +249,13 @@ export function PrintLabelScreen({ onBack }) {
               <label className="text-xs font-semibold text-gray-300">
                 Materials in this Box
               </label>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setScanTarget({ type: 'material', index: 'new' })}
-                  className="text-blue-400 hover:text-blue-300 text-xs font-semibold py-1 px-2 rounded-lg hover:bg-blue-950/60 transition-colors flex items-center gap-1"
-                  title="Scan barcode and add material"
-                >
-                  <span>📷</span>
-                  <span>Scan</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAddMaterial}
-                  className="text-blue-400 hover:text-blue-300 text-xs font-semibold py-1 px-2 rounded-lg hover:bg-blue-950/60 transition-colors"
-                >
-                  + Add
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleAddMaterial}
+                className="text-blue-400 hover:text-blue-300 text-xs font-semibold py-1 px-2 rounded-lg hover:bg-blue-950/60 transition-colors"
+              >
+                + Add Material
+              </button>
             </div>
 
             <div className="flex flex-col gap-2">
