@@ -317,12 +317,6 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
     saveValue(value);
   };
 
-  const engineBadge = ocrEngine === 'barcode'
-    ? { label: `⚡ Barcode (${ocrResult?.format || '1D'})`, cls: 'bg-emerald-950 border border-emerald-600 text-emerald-300' }
-    : ocrEngine === 'paddle'
-    ? { label: '⚡ Neural OCR', cls: 'bg-blue-900 text-blue-300' }
-    : { label: '🔷 Standard OCR', cls: 'bg-gray-800 text-gray-300' };
-
   return (
     <div className="min-h-screen bg-black flex flex-col select-none">
 
@@ -483,19 +477,6 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
                   </div>
                 </div>
 
-                {/* Clean, single-line guide instruction */}
-                <div className="absolute top-[58%] sm:top-[60%] left-0 right-0 pointer-events-none flex justify-center z-10 px-4">
-                  <div className="px-3.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-center shadow-lg">
-                    <p className="text-xs font-medium text-gray-200">
-                      Align <span className={isPrimaryMode ? 'text-cyan-300 font-semibold' : 'text-fuchsia-300 font-semibold'}>
-                        {isInventory
-                          ? (isPrimaryMode ? 'Material code & barcode' : 'Bin location & barcode')
-                          : (isInvoice ? 'DN number & barcode' : 'Docket number & barcode')}
-                      </span> inside box
-                    </p>
-                  </div>
-                </div>
-
                 {/* Banners */}
                 {savedBanner && (
                   <div className="absolute top-16 left-4 right-4 z-20 bg-green-900/90 border border-green-600 rounded-xl px-4 py-3 text-green-300 text-center font-semibold text-lg shadow-xl">
@@ -558,8 +539,6 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
                       <span className="text-xl">✏️</span>
                     </button>
                   </div>
-
-                  <p className="text-gray-400 text-xs mt-2">Auto-scans barcode inside box · Tap shutter for photo</p>
                 </div>
               </>
             )}
@@ -603,67 +582,16 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
 
             {/* Bottom Extraction Card */}
             <div className="absolute inset-x-0 bottom-0 z-30 p-4 pb-8 bg-gradient-to-t from-black via-black/95 to-transparent">
-              <div className="bg-gray-900/95 backdrop-blur-md rounded-2xl p-5 border border-gray-700/80 shadow-2xl max-w-sm mx-auto flex flex-col items-center text-center">
-                
-                {/* Mode & Engine Badges */}
-                <div className="flex items-center gap-2 mb-3 flex-wrap justify-center">
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
-                    isInvoice
-                      ? 'bg-blue-950/80 border-blue-700/60 text-blue-300'
-                      : 'bg-purple-950/80 border-purple-700/60 text-purple-300'
-                  }`}>
-                    {isInvoice ? '🧾 Invoice Scan' : '📦 Docket Scan'}
-                  </span>
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${engineBadge.cls}`}>
-                    {engineBadge.label}
-                  </span>
-                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium border animate-pulse ${
-                    isInvoice
-                      ? 'text-cyan-300 bg-cyan-950/80 border-cyan-800'
-                      : 'text-fuchsia-300 bg-fuchsia-950/80 border-fuchsia-800'
-                  }`}>
-                    ⚡ Processing
-                  </span>
+              <div className="bg-gray-900/95 backdrop-blur-md rounded-2xl p-6 border border-gray-700/80 shadow-2xl max-w-sm mx-auto flex flex-col items-center text-center gap-3">
+                <div className="w-10 h-10 border-3 border-gray-700 border-t-cyan-400 rounded-full animate-spin" />
+                <div>
+                  <h3 className="text-white font-bold text-base">
+                    Reading {fieldLabel}…
+                  </h3>
+                  <p className="text-gray-400 text-xs mt-1">
+                    {processingMsg || 'Processing…'}
+                  </p>
                 </div>
-
-                {/* Animated Scanner Ring */}
-                <div className="relative w-16 h-16 mb-3 flex items-center justify-center">
-                  <div className={`absolute inset-0 rounded-full border-4 border-gray-700 animate-spin ${
-                    isInvoice
-                      ? 'border-t-cyan-400 border-r-blue-500'
-                      : 'border-t-fuchsia-400 border-r-purple-500'
-                  }`} />
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center animate-pulse ${
-                    isInvoice ? 'bg-cyan-500/20' : 'bg-fuchsia-500/20'
-                  }`}>
-                    <span className="text-lg">{isInvoice ? '🧾' : '📦'}</span>
-                  </div>
-                </div>
-
-                {/* Primary Loading Title */}
-                <h3 className="text-white font-bold text-lg mb-1 tracking-wide">
-                  Extracting {fieldLabel}…
-                </h3>
-
-                {/* Dynamic Status / Progress Subtext */}
-                <p className={`text-xs font-medium mb-3 min-h-[18px] transition-all ${
-                  isInvoice ? 'text-cyan-300' : 'text-fuchsia-300'
-                }`}>
-                  {processingMsg || 'Detecting & reading numbers…'}
-                </p>
-
-                {/* Animated Shimmer Bar */}
-                <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mb-2">
-                  <div className={`h-full rounded-full w-full animate-pulse ${
-                    isInvoice
-                      ? 'bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500'
-                      : 'bg-gradient-to-r from-fuchsia-500 via-purple-500 to-pink-500'
-                  }`} />
-                </div>
-
-                <span className="text-[11px] text-gray-400">
-                  Scanning document digits &amp; labels in real time
-                </span>
               </div>
             </div>
           </div>
@@ -673,32 +601,27 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
         {phase === PHASE.OK && ocrResult && (
           <div className="absolute inset-0 flex flex-col z-20">
             {previewUrl && <img src={previewUrl} alt="Captured" className="w-full flex-1 object-contain bg-black opacity-35" />}
-            <div className="absolute inset-x-0 bottom-0 bg-gray-950 rounded-t-3xl border-t border-gray-700 shadow-2xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-gray-400 text-sm font-medium">{fieldLabel} found</span>
-                <div className="flex gap-2">
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${engineBadge.cls}`}>
-                    {engineBadge.label}
-                  </span>
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                    ocrResult.confidence === 'HIGH' ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300'
-                  }`}>
-                    {ocrResult.confidence === 'HIGH' ? '✓ Verified' : '⚠ Verify'}
-                  </span>
-                </div>
+            <div className="absolute inset-x-0 bottom-0 bg-gray-950 rounded-t-3xl border-t border-gray-700 shadow-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">{fieldLabel} detected</span>
+                <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
+                  ocrResult.confidence === 'HIGH' ? 'bg-green-950 border border-green-700 text-green-300' : 'bg-yellow-950 border border-yellow-700 text-yellow-300'
+                }`}>
+                  {ocrResult.confidence === 'HIGH' ? '✓ High confidence' : 'Verify'}
+                </span>
               </div>
 
-              <div className="bg-gray-800/90 rounded-2xl px-6 py-4 mb-4 text-center border border-gray-700/60">
-                <p className="text-white text-3xl font-mono font-bold tracking-widest break-all">
+              <div className="bg-gray-900 rounded-2xl px-5 py-3.5 mb-4 text-center border border-gray-800">
+                <p className="text-white text-3xl font-mono font-bold tracking-wider break-all">
                   {ocrResult.value}
                 </p>
               </div>
 
               <div className="flex flex-col gap-2.5">
-                {/* 1. Rapid Scan: Save and scan next immediately */}
+                {/* 1. Save and scan next */}
                 <button
                   onClick={() => saveValue(ocrResult.value)}
-                  className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3.5 rounded-2xl text-base transition-colors shadow-lg active:scale-98 flex items-center justify-center gap-2"
+                  className="w-full bg-green-600 hover:bg-green-500 active:bg-green-700 text-white font-bold py-3.5 rounded-xl text-base transition-colors shadow-lg flex items-center justify-center gap-2"
                 >
                   <span>✓</span>
                   <span>
@@ -706,7 +629,7 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
                   </span>
                 </button>
 
-                {/* 2. Rapid Scan: Save and switch mode immediately */}
+                {/* 2. Save and switch mode */}
                 <button
                   onClick={() => saveValue(
                     ocrResult.value,
@@ -714,10 +637,10 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
                       ? (isPrimaryMode ? 'bin' : 'material')
                       : (isInvoice ? 'docket' : 'invoice')
                   )}
-                  className={`w-full text-white font-semibold py-3 rounded-2xl text-sm transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 border ${
+                  className={`w-full font-semibold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-2 border ${
                     isPrimaryMode
-                      ? 'bg-fuchsia-900/80 hover:bg-fuchsia-800 border-fuchsia-600 text-fuchsia-100'
-                      : 'bg-cyan-900/80 hover:bg-cyan-800 border-cyan-600 text-cyan-100'
+                      ? 'bg-fuchsia-950/70 hover:bg-fuchsia-900 border-fuchsia-700 text-fuchsia-200'
+                      : 'bg-cyan-950/70 hover:bg-cyan-900 border-cyan-700 text-cyan-200'
                   }`}
                 >
                   <span>⇄</span>
@@ -730,26 +653,16 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
                   </span>
                 </button>
 
-                {/* If scanned via Barcode, offer instant 1-tap fallback to text OCR */}
-                {ocrEngine === 'barcode' && (
-                  <button
-                    onClick={() => handleProcessImage(previewUrl, null, { forceOCR: true })}
-                    className="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium py-2.5 rounded-xl text-xs border border-gray-700 flex items-center justify-center gap-2 transition-all active:scale-98"
-                  >
-                    <span>🔍</span> Wrong number? Re-read text with OCR
-                  </button>
-                )}
-
-                <div className="flex gap-2.5">
+                <div className="flex gap-2.5 pt-1">
                   <button
                     onClick={() => { setEditValue(ocrResult.value); setShowManual(true); }}
-                    className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold py-2.5 rounded-xl text-sm transition-colors border border-gray-700"
+                    className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold py-2.5 rounded-xl text-xs transition-colors border border-gray-700"
                   >
                     ✏️ Edit
                   </button>
                   <button
                     onClick={handleRetry}
-                    className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold py-2.5 rounded-xl text-sm transition-colors border border-gray-700"
+                    className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold py-2.5 rounded-xl text-xs transition-colors border border-gray-700"
                   >
                     📷 Retake
                   </button>
@@ -765,31 +678,19 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
             {previewUrl && <img src={previewUrl} alt="Captured" className="w-full flex-1 object-contain bg-black opacity-40" />}
             <div className="absolute inset-x-0 bottom-0 bg-gray-950 rounded-t-3xl border-t border-gray-700 shadow-2xl p-6">
               <div className="text-center mb-5">
-                <div className="text-5xl mb-3">🔍</div>
-                <h2 className="text-white font-bold text-xl mb-2">{fieldLabel} not found</h2>
-                <p className="text-gray-400 text-sm leading-relaxed">
-                  Ensure the <span className="text-gray-200 font-medium">{fieldLabel}</span> label
-                  and number are clearly visible, well-lit, and in focus inside the box.
+                <div className="text-4xl mb-2">🔍</div>
+                <h2 className="text-white font-bold text-lg mb-1">{fieldLabel} not detected</h2>
+                <p className="text-gray-400 text-xs">
+                  Please hold steady and ensure the code is clearly visible and in focus.
                 </p>
-                {ocrResult?.rawText && (
-                  <div className="mt-3 p-2 bg-gray-900 border border-gray-800 rounded-lg text-[11px] font-mono text-gray-400 text-left max-h-24 overflow-y-auto whitespace-pre-wrap">
-                    <div className="text-gray-300 font-bold mb-0.5">Detected Text:</div>
-                    {ocrResult.rawText.slice(0, 400)}
-                  </div>
-                )}
-                {lastOcrError && (
-                  <div className="mt-2 p-2 bg-red-950/70 border border-red-800 rounded-lg text-[11px] font-mono text-red-300 text-left break-all">
-                    {lastOcrError}
-                  </div>
-                )}
               </div>
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2.5">
                 <button onClick={handleRetry}
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl text-lg transition-colors">
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl text-sm transition-colors">
                   📷 Try again
                 </button>
                 <button onClick={() => { setEditValue(''); setShowManual(true); }}
-                  className="w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 rounded-xl transition-colors">
+                  className="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold py-3 rounded-xl text-xs transition-colors border border-gray-700">
                   ✏️ Enter manually
                 </button>
               </div>
