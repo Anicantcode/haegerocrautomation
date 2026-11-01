@@ -13,8 +13,10 @@ export function PrintLabelScreen({ onBack }) {
   ]);
   const [copies, setCopies] = useState(1);
 
-  // UI & Hardware State
-  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  // Scanner modal: null | { type: 'dn' } | { type: 'material', index: number | 'new' }
+  const [scanTarget, setScanTarget] = useState(null);
+
+  // Printer State
   const [printerState, setPrinterState] = useState(() => printerService.getState());
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
@@ -49,6 +51,29 @@ export function PrintLabelScreen({ onBack }) {
     });
   };
 
+  // Handle scanned code from camera
+  const handleScannedCode = (code) => {
+    if (!scanTarget) return;
+
+    if (scanTarget.type === 'dn') {
+      setDnNumber(code);
+      showNotification(`✅ Scanned DN: ${code}`);
+    } else if (scanTarget.type === 'material') {
+      if (scanTarget.index === 'new') {
+        // If the only row is empty, fill it; otherwise append a new row
+        setMaterials((prev) => {
+          if (prev.length === 1 && !prev[0].code.trim() && !prev[0].qty) {
+            return [{ code, qty: '' }];
+          }
+          return [...prev, { code, qty: '' }];
+        });
+      } else {
+        handleMaterialChange(scanTarget.index, 'code', code);
+      }
+      showNotification(`✅ Scanned Material: ${code}`);
+    }
+  };
+
   // Reset form for next carton
   const handleReset = () => {
     setDnNumber('');
@@ -57,16 +82,16 @@ export function PrintLabelScreen({ onBack }) {
     showNotification('Form cleared for next carton.');
   };
 
-  // Connect to TSC Alpha-3RB
+  // Connect to Printer
   const handleConnect = async (type) => {
     try {
       setShowConnectModal(false);
       if (type === 'serial') {
         await printerService.connectSerial();
-        showNotification('✅ Connected to TSC Alpha-3RB via Serial/Bluetooth!');
+        showNotification('✅ Printer connected!');
       } else if (type === 'bluetooth') {
         await printerService.connectBluetooth();
-        showNotification('✅ Connected to TSC Alpha-3RB via Bluetooth!');
+        showNotification('✅ Printer connected!');
       }
     } catch (err) {
       showNotification(`❌ Connection failed: ${err.message}`);
@@ -94,7 +119,6 @@ export function PrintLabelScreen({ onBack }) {
 
     setIsPrinting(true);
 
-    // If direct printer is connected (Web Serial / Bluetooth)
     if (printerState.isConnected) {
       try {
         const tspl = generateBoxLabelTSPL({
@@ -105,8 +129,7 @@ export function PrintLabelScreen({ onBack }) {
         });
 
         await printerService.printDirect(tspl);
-        showNotification(`✅ Printed ${copies} label(s) to TSC Alpha-3RB!`);
-        // Reset form for next carton
+        showNotification(`✅ Printed ${copies} label(s)!`);
         handleReset();
       } catch (err) {
         showNotification(`❌ Print error: ${err.message}. Trying browser print...`);
@@ -115,7 +138,6 @@ export function PrintLabelScreen({ onBack }) {
         setIsPrinting(false);
       }
     } else {
-      // Fallback: Browser Print
       try {
         printerService.printBrowser();
         showNotification('🖨️ Opening print dialog...');
@@ -141,7 +163,6 @@ export function PrintLabelScreen({ onBack }) {
             <h1 className="text-lg font-bold text-white flex items-center gap-2">
               <span>🏷️</span> Box Label Printing
             </h1>
-            <p className="text-gray-400 text-xs">TSC Alpha-3RB · 72mm Roll</p>
           </div>
         </div>
 
@@ -154,7 +175,7 @@ export function PrintLabelScreen({ onBack }) {
               title="Click to disconnect"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="truncate max-w-[110px]">{printerState.deviceName || 'TSC Connected'}</span>
+              <span>Connected</span>
             </button>
           ) : (
             <button
@@ -197,7 +218,8 @@ export function PrintLabelScreen({ onBack }) {
                 className="flex-1 bg-gray-950 border border-gray-700 rounded-xl px-3 py-2.5 text-white font-mono text-base focus:outline-none focus:border-blue-500 transition-colors"
               />
               <button
-                onClick={() => setIsScanModalOpen(true)}
+                type="button"
+                onClick={() => setScanTarget({ type: 'dn' })}
                 className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold px-3.5 py-2.5 rounded-xl text-sm flex items-center gap-1.5 transition-colors shadow"
                 title="Scan barcode or invoice"
               >
@@ -227,24 +249,46 @@ export function PrintLabelScreen({ onBack }) {
               <label className="text-xs font-semibold text-gray-300">
                 Materials in this Box
               </label>
-              <button
-                onClick={handleAddMaterial}
-                className="text-blue-400 hover:text-blue-300 text-xs font-bold py-1 px-2 rounded-lg hover:bg-blue-950/60 transition-colors"
-              >
-                + Add Material
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setScanTarget({ type: 'material', index: 'new' })}
+                  className="text-blue-400 hover:text-blue-300 text-xs font-semibold py-1 px-2 rounded-lg hover:bg-blue-950/60 transition-colors flex items-center gap-1"
+                  title="Scan barcode and add material"
+                >
+                  <span>📷</span>
+                  <span>Scan</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddMaterial}
+                  className="text-blue-400 hover:text-blue-300 text-xs font-semibold py-1 px-2 rounded-lg hover:bg-blue-950/60 transition-colors"
+                >
+                  + Add
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-col gap-2">
               {materials.map((mat, idx) => (
                 <div key={idx} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={mat.code}
-                    onChange={(e) => handleMaterialChange(idx, 'code', e.target.value.toUpperCase())}
-                    placeholder="Material code (e.g. HDA041Z9)"
-                    className="flex-1 bg-gray-950 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                  />
+                  <div className="flex-1 flex gap-1.5">
+                    <input
+                      type="text"
+                      value={mat.code}
+                      onChange={(e) => handleMaterialChange(idx, 'code', e.target.value.toUpperCase())}
+                      placeholder="Material code"
+                      className="w-full bg-gray-950 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setScanTarget({ type: 'material', index: idx })}
+                      className="bg-blue-600/90 hover:bg-blue-500 active:bg-blue-700 text-white px-2.5 py-2 rounded-xl text-xs flex items-center justify-center transition-colors shadow shrink-0"
+                      title="Scan barcode for this material"
+                    >
+                      📷
+                    </button>
+                  </div>
                   <input
                     type="number"
                     value={mat.qty}
@@ -254,6 +298,7 @@ export function PrintLabelScreen({ onBack }) {
                   />
                   {materials.length > 1 && (
                     <button
+                      type="button"
                       onClick={() => handleRemoveMaterial(idx)}
                       className="text-gray-500 hover:text-red-400 p-2 text-lg leading-none"
                       title="Remove row"
@@ -267,17 +312,16 @@ export function PrintLabelScreen({ onBack }) {
           </div>
         </div>
 
-        {/* Live Thermal Label Preview (Exact Layout matching user sample) */}
+        {/* Live Label Preview */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between px-1">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-              Live Preview (72mm Thermal Sticker)
+              Live Preview
             </span>
-            <span className="text-[11px] text-gray-500">203 DPI Scale</span>
           </div>
 
           <div className="bg-neutral-200 p-4 rounded-2xl flex items-center justify-center overflow-x-auto shadow-inner border border-gray-700">
-            {/* The Actual Thermal Sticker Container */}
+            {/* The Actual Sticker Container */}
             <div
               id="label-preview-card"
               className="bg-white text-black p-3 rounded shadow-md w-full max-w-[320px] select-none"
@@ -387,17 +431,13 @@ export function PrintLabelScreen({ onBack }) {
           >
             <span>🖨️</span>
             <span>
-              {isPrinting
-                ? 'Printing...'
-                : printerState.isConnected
-                ? `Print to TSC Alpha-3RB (${copies}x)`
-                : `Print Label (${copies}x)`}
+              {isPrinting ? 'Printing...' : `Print Label (${copies}x)`}
             </span>
           </button>
 
           {!printerState.isConnected && (
             <p className="text-[11px] text-gray-400 text-center">
-              💡 Tip: Click <span className="text-blue-400 font-semibold cursor-pointer underline" onClick={() => setShowConnectModal(true)}>Connect Printer</span> above to print instantly via Bluetooth without system popups.
+              💡 Tip: <span className="text-blue-400 font-semibold cursor-pointer underline" onClick={() => setShowConnectModal(true)}>Connect Printer</span> for 1-tap printing.
             </p>
           )}
         </div>
@@ -438,14 +478,13 @@ export function PrintLabelScreen({ onBack }) {
         </div>
       </div>
 
-      {/* Camera Scan DN Modal */}
+      {/* Camera Scan Modal (Supports DN and Material) */}
       <ScanDNModal
-        isOpen={isScanModalOpen}
-        onClose={() => setIsScanModalOpen(false)}
-        onDNScanned={(scannedDN) => {
-          setDnNumber(scannedDN);
-          showNotification(`✅ Scanned DN: ${scannedDN}`);
-        }}
+        isOpen={Boolean(scanTarget)}
+        mode={scanTarget?.type || 'dn'}
+        title={scanTarget?.type === 'material' ? 'Scan Material Code' : 'Scan Delivery Note (DN)'}
+        onClose={() => setScanTarget(null)}
+        onScanned={handleScannedCode}
       />
 
       {/* Printer Connect Modal */}
@@ -454,7 +493,7 @@ export function PrintLabelScreen({ onBack }) {
           <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-sm p-5 shadow-2xl flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-gray-800 pb-3">
               <h3 className="text-white font-bold text-base flex items-center gap-2">
-                <span>🔌</span> Connect TSC Alpha-3RB
+                <span>🔌</span> Connect Printer
               </h3>
               <button
                 onClick={() => setShowConnectModal(false)}
@@ -465,7 +504,7 @@ export function PrintLabelScreen({ onBack }) {
             </div>
 
             <p className="text-xs text-gray-300">
-              Select your connection method. Make sure your printer is turned on and paired in Bluetooth settings (PIN: <code className="text-amber-300 bg-gray-800 px-1 py-0.5 rounded">0000</code> or <code className="text-amber-300 bg-gray-800 px-1 py-0.5 rounded">1234</code>).
+              Select your connection method. Make sure your printer is turned on and paired in Bluetooth settings if using wireless.
             </p>
 
             <div className="flex flex-col gap-2.5">
@@ -476,8 +515,8 @@ export function PrintLabelScreen({ onBack }) {
                 <div className="flex items-center gap-2.5 text-left">
                   <span className="text-xl">📡</span>
                   <div>
-                    <div className="font-bold">Bluetooth COM / USB Serial</div>
-                    <div className="text-[11px] text-blue-200">Recommended for Windows &amp; Android</div>
+                    <div className="font-bold">USB / Serial Port</div>
+                    <div className="text-[11px] text-blue-200">Recommended for USB or paired Bluetooth COM</div>
                   </div>
                 </div>
                 <span>➔</span>
@@ -490,7 +529,7 @@ export function PrintLabelScreen({ onBack }) {
                 <div className="flex items-center gap-2.5 text-left">
                   <span className="text-xl">📶</span>
                   <div>
-                    <div className="font-bold">Web Bluetooth (BLE)</div>
+                    <div className="font-bold">Wireless Bluetooth</div>
                     <div className="text-[11px] text-purple-200">Direct wireless discovery</div>
                   </div>
                 </div>

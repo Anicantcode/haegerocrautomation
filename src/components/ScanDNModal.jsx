@@ -4,6 +4,7 @@ import { scanBarcode } from '../ocr/barcodeScanner.js';
 import { recognizeWithPaddle } from '../ocr/paddleProcessor.js';
 import { initOCR, recognizeImage } from '../ocr/ocrProcessor.js';
 import { extractDNNumber } from '../ocr/invoiceExtractor.js';
+import { extractInventoryCode } from '../ocr/inventoryExtractor.js';
 
 function playBeep() {
   try {
@@ -22,21 +23,40 @@ function vibrate() {
   try { navigator.vibrate?.(150); } catch (_) {}
 }
 
-export function ScanDNModal({ isOpen, onClose, onDNScanned }) {
+export function ScanDNModal({
+  isOpen,
+  onClose,
+  onDNScanned,
+  onScanned,
+  mode = 'dn',
+  title = '',
+}) {
   const { videoRef, isReady, error: camError, startCamera, stopCamera, captureFrame } = useCamera();
   const [isProcessingOcr, setIsProcessingOcr] = useState(false);
-  const [statusMsg, setStatusMsg] = useState('Point camera at DN barcode or invoice');
+  const isMaterial = mode === 'material';
+  const defaultTitle = isMaterial ? 'Scan Material' : 'Scan Delivery Note (DN)';
+  const displayTitle = title || defaultTitle;
+  const initialStatus = isMaterial
+    ? 'Point camera at material barcode or label'
+    : 'Point camera at DN barcode or invoice';
+
+  const [statusMsg, setStatusMsg] = useState(initialStatus);
   const scanningBarcodeRef = useRef(false);
+
+  const handleResult = (val) => {
+    if (onScanned) onScanned(val);
+    else if (onDNScanned) onDNScanned(val);
+  };
 
   useEffect(() => {
     if (isOpen) {
       startCamera();
-      setStatusMsg('Point camera at DN barcode or invoice');
+      setStatusMsg(initialStatus);
     } else {
       stopCamera();
     }
     return () => stopCamera();
-  }, [isOpen]); // eslint-disable-line
+  }, [isOpen, initialStatus]); // eslint-disable-line
 
   // Real-time automatic barcode scanning loop
   useEffect(() => {
@@ -52,11 +72,14 @@ export function ScanDNModal({ isOpen, onClose, onDNScanned }) {
       try {
         const found = await scanBarcode(video);
         if (found && found.value && active) {
-          const rawCandidate = found.value.replace(/[\s\-\.\#\:\/]/g, '');
-          if (rawCandidate.length >= 4) {
+          const rawCandidate = isMaterial
+            ? found.value.trim()
+            : found.value.replace(/[\s\-\.\#\:\/]/g, '');
+
+          if (rawCandidate.length >= 2) {
             playBeep();
             vibrate();
-            onDNScanned(rawCandidate);
+            handleResult(rawCandidate);
             onClose();
           }
         }
@@ -71,13 +94,13 @@ export function ScanDNModal({ isOpen, onClose, onDNScanned }) {
       active = false;
       clearInterval(interval);
     };
-  }, [isOpen, isReady, camError, isProcessingOcr, onDNScanned, onClose, videoRef]);
+  }, [isOpen, isReady, camError, isProcessingOcr, isMaterial, onClose, videoRef]);
 
   // Fallback: OCR capture if barcode is missing or not scanning
   const handleOcrCapture = async () => {
     if (isProcessingOcr) return;
     setIsProcessingOcr(true);
-    setStatusMsg('Running OCR to extract DN number...');
+    setStatusMsg(`Running OCR to extract ${isMaterial ? 'Material code' : 'DN number'}...`);
 
     try {
       const frame = captureFrame();
@@ -87,35 +110,45 @@ export function ScanDNModal({ isOpen, onClose, onDNScanned }) {
         return;
       }
 
-      let extractedDN = null;
+      let extractedCode = null;
 
       // Try PaddleOCR first
       try {
         const paddleRes = await recognizeWithPaddle(frame.dataUrl);
         if (paddleRes?.lines) {
           const fullText = paddleRes.lines.map(l => l.text).join('\n');
-          const ext = extractDNNumber(fullText, []);
-          if (ext?.value) extractedDN = ext.value;
+          if (isMaterial) {
+            const ext = extractInventoryCode(fullText, [], 'material');
+            if (ext?.value) extractedCode = ext.value;
+          } else {
+            const ext = extractDNNumber(fullText, []);
+            if (ext?.value) extractedCode = ext.value;
+          }
         }
       } catch (_) {}
 
       // Fallback to Tesseract if paddle did not extract
-      if (!extractedDN) {
+      if (!extractedCode) {
         await initOCR();
         const tesseractRes = await recognizeImage(frame.dataUrl);
         if (tesseractRes?.text) {
-          const ext = extractDNNumber(tesseractRes.text, tesseractRes.words || []);
-          if (ext?.value) extractedDN = ext.value;
+          if (isMaterial) {
+            const ext = extractInventoryCode(tesseractRes.text, tesseractRes.words || [], 'material');
+            if (ext?.value) extractedCode = ext.value;
+          } else {
+            const ext = extractDNNumber(tesseractRes.text, tesseractRes.words || []);
+            if (ext?.value) extractedCode = ext.value;
+          }
         }
       }
 
-      if (extractedDN) {
+      if (extractedCode) {
         playBeep();
         vibrate();
-        onDNScanned(extractedDN);
+        handleResult(extractedCode);
         onClose();
       } else {
-        setStatusMsg('❌ Could not detect DN Number. Try getting closer or enter manually.');
+        setStatusMsg(`❌ Could not detect ${isMaterial ? 'Material Code' : 'DN Number'}. Try getting closer or enter manually.`);
       }
     } catch (err) {
       setStatusMsg(`❌ OCR error: ${err.message}`);
@@ -133,7 +166,7 @@ export function ScanDNModal({ isOpen, onClose, onDNScanned }) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
           <div className="flex items-center gap-2">
             <span className="text-xl">📷</span>
-            <h3 className="text-white font-bold text-base">Scan Delivery Note (DN)</h3>
+            <h3 className="text-white font-bold text-base">{displayTitle}</h3>
           </div>
           <button
             onClick={onClose}

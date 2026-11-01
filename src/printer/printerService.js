@@ -60,7 +60,7 @@ class PrinterService {
       this.status = 'connected';
       this.type = 'serial';
       const info = port.getInfo ? port.getInfo() : {};
-      this.deviceName = info.usbVendorId ? `TSC Alpha-3RB (USB)` : `TSC Alpha-3RB (Serial/BT)`;
+      this.deviceName = info.usbVendorId ? 'Printer (USB)' : 'Printer (Serial/BT)';
       this.notify();
 
       // Listen for unexpected disconnect
@@ -132,7 +132,7 @@ class PrinterService {
       this.bleCharacteristic = writeChar;
       this.status = 'connected';
       this.type = 'bluetooth';
-      this.deviceName = device.name || 'TSC Alpha-3RB (BLE)';
+      this.deviceName = device.name || 'Printer (Bluetooth)';
       this.notify();
 
       device.addEventListener('gattserverdisconnected', () => {
