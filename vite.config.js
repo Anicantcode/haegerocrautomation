@@ -7,13 +7,17 @@ export default defineConfig({
     include: ['tesseract.js'],
   },
   build: {
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
           xlsx: ['xlsx'],
+          zxing: ['@zxing/browser', '@zxing/library'],
+          tesseract: ['tesseract.js'],
         },
       },
     },
   },
 });
+
