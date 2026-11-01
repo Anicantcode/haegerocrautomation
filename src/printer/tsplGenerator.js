@@ -12,12 +12,16 @@ function sanitizeTSPL(val) {
 }
 
 export function generateBoxLabelTSPL({
+  name = '',
+  city = '',
   dnNumber = '',
   boxNumber = '',
   materials = [],
   copies = 1,
   fixedHeightMm = null,
 }) {
+  const cleanName = sanitizeTSPL(name);
+  const cleanCity = sanitizeTSPL(city);
   const cleanDN = sanitizeTSPL(dnNumber);
   const cleanBox = sanitizeTSPL(boxNumber);
   const validMaterials = materials.filter(m => m && (m.code || m.qty));
@@ -26,12 +30,14 @@ export function generateBoxLabelTSPL({
   const leftX = 20;
   const rightX = 556;
   const tableWidth = rightX - leftX; // 536 dots
-  const colSplitX = 300; // vertical divider
-  const rowHeight = 54; // dots (~6.75mm per row)
+  const colSplitX = 300; // vertical divider for 2-column section
+  const rowHeight = 52; // dots (~6.5mm per row)
 
   const topY = 20;
-  const totalRows = 3 + Math.max(1, validMaterials.length);
+  // 2 header rows (Name, City) + 3 grid rows (DN No, Box No, Material/Qty) + dynamic materials
+  const totalRows = 5 + Math.max(1, validMaterials.length);
   const tableBottom = topY + totalRows * rowHeight;
+  const twoColTopY = topY + 2 * rowHeight; // Vertical divider starts below Name & City
 
   // Calculate overall label height in mm
   // Include room for barcode below table (height ~50 dots + text ~24 dots + margin)
@@ -47,39 +53,47 @@ export function generateBoxLabelTSPL({
     `CLS`,
     // Outer table border (line thickness 3 dots)
     `BOX ${leftX}, ${topY}, ${rightX}, ${tableBottom}, 3`,
-    // Vertical column divider
-    `BAR ${colSplitX}, ${topY}, 3, ${tableBottom - topY}`,
+    // Vertical column divider (only for DN No, Box No, and Materials grid)
+    `BAR ${colSplitX}, ${twoColTopY}, 3, ${tableBottom - twoColTopY}`,
   ];
 
-  // Horizontal divider lines
+  // Horizontal divider lines for all rows
   for (let i = 1; i < totalRows; i++) {
     const dividerY = topY + i * rowHeight;
     lines.push(`BAR ${leftX}, ${dividerY}, ${tableWidth}, 3`);
   }
 
-  // Row 1: DN No
+  // Row 1 (Full-width): Name
   const r1Y = topY + 14;
-  lines.push(`TEXT ${leftX + 12}, ${r1Y}, "3", 0, 1, 1, "DN No"`);
-  lines.push(`TEXT ${colSplitX + 14}, ${r1Y}, "3", 0, 1, 1, "${cleanDN || '-'}"`);
+  lines.push(`TEXT ${leftX + 12}, ${r1Y}, "3", 0, 1, 1, "Name: ${cleanName || '-'}"`);
 
-  // Row 2: Box No
+  // Row 2 (Full-width): City
   const r2Y = topY + rowHeight + 14;
-  lines.push(`TEXT ${leftX + 12}, ${r2Y}, "3", 0, 1, 1, "Box No"`);
-  lines.push(`TEXT ${colSplitX + 14}, ${r2Y}, "3", 0, 1, 1, "${cleanBox || '-'}"`);
+  lines.push(`TEXT ${leftX + 12}, ${r2Y}, "3", 0, 1, 1, "City: ${cleanCity || '-'}"`);
 
-  // Row 3: Material | Qty (Header)
-  const r3Y = topY + rowHeight * 2 + 14;
-  lines.push(`TEXT ${leftX + 12}, ${r3Y}, "3", 0, 1, 1, "Material"`);
-  lines.push(`TEXT ${colSplitX + 14}, ${r3Y}, "3", 0, 1, 1, "Qty"`);
+  // Row 3: DN No
+  const r3Y = twoColTopY + 14;
+  lines.push(`TEXT ${leftX + 12}, ${r3Y}, "3", 0, 1, 1, "DN No"`);
+  lines.push(`TEXT ${colSplitX + 14}, ${r3Y}, "3", 0, 1, 1, "${cleanDN || '-'}"`);
 
-  // Row 4+: Materials list
+  // Row 4: Box No
+  const r4Y = twoColTopY + rowHeight + 14;
+  lines.push(`TEXT ${leftX + 12}, ${r4Y}, "3", 0, 1, 1, "Box No"`);
+  lines.push(`TEXT ${colSplitX + 14}, ${r4Y}, "3", 0, 1, 1, "${cleanBox || '-'}"`);
+
+  // Row 5: Material | Qty (Header)
+  const r5Y = twoColTopY + rowHeight * 2 + 14;
+  lines.push(`TEXT ${leftX + 12}, ${r5Y}, "3", 0, 1, 1, "Material"`);
+  lines.push(`TEXT ${colSplitX + 14}, ${r5Y}, "3", 0, 1, 1, "Qty"`);
+
+  // Row 6+: Materials list
   if (validMaterials.length === 0) {
-    const rEmptyY = topY + rowHeight * 3 + 14;
+    const rEmptyY = twoColTopY + rowHeight * 3 + 14;
     lines.push(`TEXT ${leftX + 12}, ${rEmptyY}, "2", 0, 1, 1, "No items"`);
     lines.push(`TEXT ${colSplitX + 14}, ${rEmptyY}, "2", 0, 1, 1, "-"`);
   } else {
     validMaterials.forEach((mat, idx) => {
-      const itemY = topY + rowHeight * (3 + idx) + 14;
+      const itemY = twoColTopY + rowHeight * (3 + idx) + 14;
       const code = sanitizeTSPL(mat.code);
       const qty = sanitizeTSPL(mat.qty);
       lines.push(`TEXT ${leftX + 12}, ${itemY}, "3", 0, 1, 1, "${code || '-'}"`);
@@ -89,7 +103,6 @@ export function generateBoxLabelTSPL({
 
   // Code-128 Barcode below table (centered)
   if (cleanDN) {
-    // BARCODE X, Y, "128", height, human_readable(1=bottom), rotation, narrow, wide, "content"
     const barcodeStartX = Math.max(leftX + 30, Math.floor((576 - cleanDN.length * 20) / 2));
     lines.push(`BARCODE ${barcodeStartX}, ${barcodeY}, "128", 50, 1, 0, 2, 2, "${cleanDN}"`);
   }

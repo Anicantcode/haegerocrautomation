@@ -6,6 +6,8 @@ import { ScanDNModal } from './ScanDNModal.jsx';
 
 export function PrintLabelScreen({ onBack }) {
   // Form State
+  const [name, setName] = useState('');
+  const [city, setCity] = useState('');
   const [dnNumber, setDnNumber] = useState('');
   const [boxNumber, setBoxNumber] = useState('');
   const [materials, setMaterials] = useState([
@@ -13,7 +15,7 @@ export function PrintLabelScreen({ onBack }) {
   ]);
   const [copies, setCopies] = useState(1);
 
-  // Scanner modal: null | { type: 'dn' } | { type: 'material', index: number | 'new' }
+  // Scanner modal: null | { type: 'invoice' } | { type: 'name' } | { type: 'dn' } | { type: 'material', index: number | 'new' }
   const [scanTarget, setScanTarget] = useState(null);
 
   // Printer State
@@ -51,14 +53,37 @@ export function PrintLabelScreen({ onBack }) {
     });
   };
 
-  // Handle scanned code from camera
-  const handleScannedCode = (code) => {
+  // Handle scanned result from camera
+  const handleScannedResult = (result) => {
     if (!scanTarget) return;
 
-    if (scanTarget.type === 'dn') {
-      setDnNumber(code);
-      showNotification(`✅ Scanned DN: ${code}`);
+    if (scanTarget.type === 'invoice') {
+      if (typeof result === 'object' && result !== null) {
+        if (result.dnNumber) setDnNumber(result.dnNumber);
+        if (result.name) setName(result.name);
+        if (result.city) setCity(result.city);
+        showNotification(`✅ Scanned Invoice: ${result.name ? `${result.name} | ` : ''}DN ${result.dnNumber || 'found'}`);
+      } else if (typeof result === 'string') {
+        setDnNumber(result);
+        showNotification(`✅ Scanned DN: ${result}`);
+      }
+    } else if (scanTarget.type === 'name') {
+      const text = typeof result === 'object' && result !== null ? (result.name || '') : String(result || '');
+      if (text) {
+        setName(text.toUpperCase());
+        if (typeof result === 'object' && result.city && !city) {
+          setCity(result.city.toUpperCase());
+        }
+        showNotification(`✅ Scanned Name: ${text}`);
+      }
+    } else if (scanTarget.type === 'dn') {
+      const code = typeof result === 'object' && result !== null ? (result.dnNumber || '') : String(result || '');
+      if (code) {
+        setDnNumber(code);
+        showNotification(`✅ Scanned DN: ${code}`);
+      }
     } else if (scanTarget.type === 'material') {
+      const code = typeof result === 'string' ? result : (result?.code || '');
       if (scanTarget.index === 'new') {
         // If the only row is empty, fill it; otherwise append a new row
         setMaterials((prev) => {
@@ -76,6 +101,8 @@ export function PrintLabelScreen({ onBack }) {
 
   // Reset form for next carton
   const handleReset = () => {
+    setName('');
+    setCity('');
     setDnNumber('');
     setBoxNumber('');
     setMaterials([{ code: '', qty: '' }]);
@@ -105,7 +132,20 @@ export function PrintLabelScreen({ onBack }) {
 
   // Print Label Handler
   const handlePrint = async () => {
+    const cleanName = name.trim();
+    const cleanCity = city.trim();
     const cleanDN = dnNumber.trim();
+
+    if (!cleanName) {
+      showNotification('⚠️ Please enter or scan Name first.');
+      return;
+    }
+
+    if (!cleanCity) {
+      showNotification('⚠️ Please enter City first.');
+      return;
+    }
+
     if (!cleanDN) {
       showNotification('⚠️ Please enter or scan a DN Number first.');
       return;
@@ -122,6 +162,8 @@ export function PrintLabelScreen({ onBack }) {
     if (printerState.isConnected) {
       try {
         const tspl = generateBoxLabelTSPL({
+          name: cleanName,
+          city: cleanCity,
           dnNumber: cleanDN,
           boxNumber: boxNumber.trim(),
           materials: validMaterials,
@@ -200,9 +242,58 @@ export function PrintLabelScreen({ onBack }) {
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5 max-w-lg mx-auto w-full">
         {/* Input Card */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-lg flex flex-col gap-4">
-          <h2 className="text-white font-bold text-sm tracking-wide uppercase text-gray-400 flex items-center gap-2">
-            <span>📝</span> Label Details
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-white font-bold text-sm tracking-wide uppercase text-gray-400 flex items-center gap-2">
+              <span>📝</span> Label Details
+            </h2>
+            <button
+              type="button"
+              onClick={() => setScanTarget({ type: 'invoice' })}
+              className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow"
+              title="Scan invoice to extract DN, Name, and City automatically"
+            >
+              <span>📷</span>
+              <span>Scan Invoice</span>
+            </button>
+          </div>
+
+          {/* Name Field (Above DN No) */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-300 mb-1">
+              Name <span className="text-red-400">*</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value.toUpperCase())}
+                placeholder="e.g. ACME ENTERPRISES PVT LTD"
+                className="flex-1 bg-gray-950 border border-gray-700 rounded-xl px-3 py-2.5 text-white font-medium text-sm focus:outline-none focus:border-blue-500 transition-colors uppercase"
+              />
+              <button
+                type="button"
+                onClick={() => setScanTarget({ type: 'name' })}
+                className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold px-3 py-2.5 rounded-xl text-sm flex items-center justify-center transition-colors shadow shrink-0"
+                title="Scan customer name from document"
+              >
+                <span>📷</span>
+              </button>
+            </div>
+          </div>
+
+          {/* City Field (Below Name, Above DN No) */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-300 mb-1">
+              City <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={city}
+              onChange={(e) => setCity(e.target.value.toUpperCase())}
+              placeholder="e.g. BANGALORE"
+              className="w-full bg-gray-950 border border-gray-700 rounded-xl px-3 py-2.5 text-white font-medium text-sm focus:outline-none focus:border-blue-500 transition-colors uppercase"
+            />
+          </div>
 
           {/* DN Number with Scan Button */}
           <div>
@@ -319,7 +410,23 @@ export function PrintLabelScreen({ onBack }) {
               {/* Bordered Table matching image */}
               <table className="w-full border-collapse border-2 border-black text-sm">
                 <tbody>
-                  {/* Row 1: DN No */}
+                  {/* Row 1: Name (Full width) */}
+                  <tr>
+                    <td colSpan={2} className="border border-black px-2.5 py-1 text-left font-semibold text-black break-words">
+                      <span className="font-normal text-gray-700">Name: </span>
+                      <span>{name.trim() || '—'}</span>
+                    </td>
+                  </tr>
+
+                  {/* Row 2: City (Full width) */}
+                  <tr>
+                    <td colSpan={2} className="border border-black px-2.5 py-1 text-left font-semibold text-black break-words">
+                      <span className="font-normal text-gray-700">City: </span>
+                      <span>{city.trim() || '—'}</span>
+                    </td>
+                  </tr>
+
+                  {/* Row 3: DN No */}
                   <tr>
                     <td className="border border-black px-2.5 py-1 font-semibold text-black text-left w-1/2">
                       DN No
@@ -329,7 +436,7 @@ export function PrintLabelScreen({ onBack }) {
                     </td>
                   </tr>
 
-                  {/* Row 2: Box No */}
+                  {/* Row 4: Box No */}
                   <tr>
                     <td className="border border-black px-2.5 py-1 font-semibold text-black text-left">
                       Box No
@@ -339,7 +446,7 @@ export function PrintLabelScreen({ onBack }) {
                     </td>
                   </tr>
 
-                  {/* Row 3: Material | Qty (Header) */}
+                  {/* Row 5: Material | Qty (Header) */}
                   <tr className="bg-gray-100">
                     <td className="border border-black px-2.5 py-1 font-bold text-black text-left">
                       Material
@@ -415,7 +522,7 @@ export function PrintLabelScreen({ onBack }) {
 
           <button
             onClick={handlePrint}
-            disabled={isPrinting || !dnNumber.trim()}
+            disabled={isPrinting || !dnNumber.trim() || !name.trim() || !city.trim()}
             className="w-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold py-3.5 px-4 rounded-xl text-base flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-98"
           >
             <span>🖨️</span>
@@ -437,6 +544,16 @@ export function PrintLabelScreen({ onBack }) {
         <div style={{ width: '72mm', padding: '2mm', boxSizing: 'border-box', background: '#fff', color: '#000', fontFamily: 'Arial, sans-serif' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', border: '2px solid black' }}>
             <tbody>
+              <tr>
+                <td colSpan={2} style={{ border: '1.5px solid black', padding: '4px 6px', fontWeight: '600', fontSize: '13px' }}>
+                  <span style={{ fontWeight: 'normal', color: '#555' }}>Name: </span>{name.trim() || '—'}
+                </td>
+              </tr>
+              <tr>
+                <td colSpan={2} style={{ border: '1.5px solid black', padding: '4px 6px', fontWeight: '600', fontSize: '13px' }}>
+                  <span style={{ fontWeight: 'normal', color: '#555' }}>City: </span>{city.trim() || '—'}
+                </td>
+              </tr>
               <tr>
                 <td style={{ border: '1.5px solid black', padding: '4px 6px', fontWeight: '600', fontSize: '13px' }}>DN No</td>
                 <td style={{ border: '1.5px solid black', padding: '4px 6px', fontWeight: 'bold', fontSize: '14px', textAlign: 'right' }}>{dnNumber.trim()}</td>
@@ -467,13 +584,21 @@ export function PrintLabelScreen({ onBack }) {
         </div>
       </div>
 
-      {/* Camera Scan Modal (Supports DN and Material) */}
+      {/* Camera Scan Modal (Supports Invoice, Name, DN, and Material) */}
       <ScanDNModal
         isOpen={Boolean(scanTarget)}
         mode={scanTarget?.type || 'dn'}
-        title={scanTarget?.type === 'material' ? 'Scan Material Code' : 'Scan Delivery Note (DN)'}
+        title={
+          scanTarget?.type === 'invoice'
+            ? 'Scan Invoice (DN, Name, City)'
+            : scanTarget?.type === 'name'
+            ? 'Scan Customer Name'
+            : scanTarget?.type === 'material'
+            ? 'Scan Material Code'
+            : 'Scan Delivery Note (DN)'
+        }
         onClose={() => setScanTarget(null)}
-        onScanned={handleScannedCode}
+        onScanned={handleScannedResult}
       />
 
       {/* Printer Connect Modal */}

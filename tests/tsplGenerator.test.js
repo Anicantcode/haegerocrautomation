@@ -4,6 +4,8 @@ import { generateBoxLabelTSPL } from '../src/printer/tsplGenerator.js';
 describe('tsplGenerator', () => {
   it('generates valid TSPL commands with table structure and barcode', () => {
     const tspl = generateBoxLabelTSPL({
+      name: 'ACME ENTERPRISES',
+      city: 'BANGALORE',
       dnNumber: '2134621450',
       boxNumber: '3',
       materials: [
@@ -17,6 +19,8 @@ describe('tsplGenerator', () => {
     expect(tspl).toContain('GAP 2 mm, 0 mm');
     expect(tspl).toContain('CLS');
     expect(tspl).toContain('BOX 20, 20, 556,');
+    expect(tspl).toContain('"Name: ACME ENTERPRISES"');
+    expect(tspl).toContain('"City: BANGALORE"');
     expect(tspl).toContain('"DN No"');
     expect(tspl).toContain('"2134621450"');
     expect(tspl).toContain('"Box No"');
