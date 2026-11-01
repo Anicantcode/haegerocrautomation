@@ -15,7 +15,7 @@ export function PrintLabelScreen({ onBack }) {
   ]);
   const [copies, setCopies] = useState(1);
 
-  // Scanner modal: null | { type: 'invoice' } | { type: 'name' } | { type: 'dn' } | { type: 'material', index: number | 'new' }
+  // Scanner modal: null | { type: 'dn' } | { type: 'material', index: number | 'new' }
   const [scanTarget, setScanTarget] = useState(null);
 
   // Printer State
@@ -54,48 +54,29 @@ export function PrintLabelScreen({ onBack }) {
   };
 
   // Handle scanned result from camera
-  const handleScannedResult = (result) => {
+  const handleScannedResult = (code) => {
     if (!scanTarget) return;
 
-    if (scanTarget.type === 'invoice') {
-      if (typeof result === 'object' && result !== null) {
-        if (result.dnNumber) setDnNumber(result.dnNumber);
-        if (result.name) setName(result.name);
-        if (result.city) setCity(result.city);
-        showNotification(`✅ Scanned Invoice: ${result.name ? `${result.name} | ` : ''}DN ${result.dnNumber || 'found'}`);
-      } else if (typeof result === 'string') {
-        setDnNumber(result);
-        showNotification(`✅ Scanned DN: ${result}`);
-      }
-    } else if (scanTarget.type === 'name') {
-      const text = typeof result === 'object' && result !== null ? (result.name || '') : String(result || '');
-      if (text) {
-        setName(text.toUpperCase());
-        if (typeof result === 'object' && result.city && !city) {
-          setCity(result.city.toUpperCase());
-        }
-        showNotification(`✅ Scanned Name: ${text}`);
-      }
-    } else if (scanTarget.type === 'dn') {
-      const code = typeof result === 'object' && result !== null ? (result.dnNumber || '') : String(result || '');
-      if (code) {
-        setDnNumber(code);
-        showNotification(`✅ Scanned DN: ${code}`);
+    if (scanTarget.type === 'dn') {
+      const cleanCode = typeof code === 'string' ? code : (code?.dnNumber || '');
+      if (cleanCode) {
+        setDnNumber(cleanCode);
+        showNotification(`✅ Scanned DN: ${cleanCode}`);
       }
     } else if (scanTarget.type === 'material') {
-      const code = typeof result === 'string' ? result : (result?.code || '');
+      const matCode = typeof code === 'string' ? code : (code?.code || '');
       if (scanTarget.index === 'new') {
         // If the only row is empty, fill it; otherwise append a new row
         setMaterials((prev) => {
           if (prev.length === 1 && !prev[0].code.trim() && !prev[0].qty) {
-            return [{ code, qty: '' }];
+            return [{ code: matCode, qty: '' }];
           }
-          return [...prev, { code, qty: '' }];
+          return [...prev, { code: matCode, qty: '' }];
         });
       } else {
-        handleMaterialChange(scanTarget.index, 'code', code);
+        handleMaterialChange(scanTarget.index, 'code', matCode);
       }
-      showNotification(`✅ Scanned Material: ${code}`);
+      showNotification(`✅ Scanned Material: ${matCode}`);
     }
   };
 
@@ -242,43 +223,22 @@ export function PrintLabelScreen({ onBack }) {
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5 max-w-lg mx-auto w-full">
         {/* Input Card */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-lg flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-white font-bold text-sm tracking-wide uppercase text-gray-400 flex items-center gap-2">
-              <span>📝</span> Label Details
-            </h2>
-            <button
-              type="button"
-              onClick={() => setScanTarget({ type: 'invoice' })}
-              className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow"
-              title="Scan invoice to extract DN, Name, and City automatically"
-            >
-              <span>📷</span>
-              <span>Scan Invoice</span>
-            </button>
-          </div>
+          <h2 className="text-white font-bold text-sm tracking-wide uppercase text-gray-400 flex items-center gap-2">
+            <span>📝</span> Label Details
+          </h2>
 
           {/* Name Field (Above DN No) */}
           <div>
             <label className="block text-xs font-semibold text-gray-300 mb-1">
               Name <span className="text-red-400">*</span>
             </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value.toUpperCase())}
-                placeholder="e.g. ACME ENTERPRISES PVT LTD"
-                className="flex-1 bg-gray-950 border border-gray-700 rounded-xl px-3 py-2.5 text-white font-medium text-sm focus:outline-none focus:border-blue-500 transition-colors uppercase"
-              />
-              <button
-                type="button"
-                onClick={() => setScanTarget({ type: 'name' })}
-                className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold px-3 py-2.5 rounded-xl text-sm flex items-center justify-center transition-colors shadow shrink-0"
-                title="Scan customer name from document"
-              >
-                <span>📷</span>
-              </button>
-            </div>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value.toUpperCase())}
+              placeholder="e.g. ACME ENTERPRISES PVT LTD"
+              className="w-full bg-gray-950 border border-gray-700 rounded-xl px-3 py-2.5 text-white font-medium text-sm focus:outline-none focus:border-blue-500 transition-colors uppercase"
+            />
           </div>
 
           {/* City Field (Below Name, Above DN No) */}
@@ -584,19 +544,11 @@ export function PrintLabelScreen({ onBack }) {
         </div>
       </div>
 
-      {/* Camera Scan Modal (Supports Invoice, Name, DN, and Material) */}
+      {/* Camera Scan Modal (Supports DN and Material) */}
       <ScanDNModal
         isOpen={Boolean(scanTarget)}
         mode={scanTarget?.type || 'dn'}
-        title={
-          scanTarget?.type === 'invoice'
-            ? 'Scan Invoice (DN, Name, City)'
-            : scanTarget?.type === 'name'
-            ? 'Scan Customer Name'
-            : scanTarget?.type === 'material'
-            ? 'Scan Material Code'
-            : 'Scan Delivery Note (DN)'
-        }
+        title={scanTarget?.type === 'material' ? 'Scan Material Code' : 'Scan Delivery Note (DN)'}
         onClose={() => setScanTarget(null)}
         onScanned={handleScannedResult}
       />

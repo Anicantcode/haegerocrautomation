@@ -5,7 +5,6 @@ import { recognizeWithPaddle } from '../ocr/paddleProcessor.js';
 import { initOCR, recognizeImage } from '../ocr/ocrProcessor.js';
 import { extractDNNumber } from '../ocr/invoiceExtractor.js';
 import { extractInventoryCode } from '../ocr/inventoryExtractor.js';
-import { extractCustomerDetails } from '../ocr/customerExtractor.js';
 
 function playBeep() {
   try {
@@ -35,24 +34,12 @@ export function ScanDNModal({
   const { videoRef, isReady, error: camError, startCamera, stopCamera, captureFrame } = useCamera();
   const [isProcessingOcr, setIsProcessingOcr] = useState(false);
   const isMaterial = mode === 'material';
-  const isInvoice = mode === 'invoice';
-  const isName = mode === 'name';
-
-  let defaultTitle = 'Scan Delivery Note (DN)';
-  let initialStatus = 'Point camera at DN barcode or invoice';
-
-  if (isMaterial) {
-    defaultTitle = 'Scan Material';
-    initialStatus = 'Point camera at material barcode or label';
-  } else if (isInvoice) {
-    defaultTitle = 'Scan Invoice (DN, Name, City)';
-    initialStatus = 'Point camera at invoice or delivery challan';
-  } else if (isName) {
-    defaultTitle = 'Scan Customer Name';
-    initialStatus = 'Point camera at customer or consignee name';
-  }
-
+  const defaultTitle = isMaterial ? 'Scan Material' : 'Scan Delivery Note (DN)';
   const displayTitle = title || defaultTitle;
+  const initialStatus = isMaterial
+    ? 'Point camera at material barcode or label'
+    : 'Point camera at DN barcode or invoice';
+
   const [statusMsg, setStatusMsg] = useState(initialStatus);
   const scanningBarcodeRef = useRef(false);
 
@@ -85,25 +72,15 @@ export function ScanDNModal({
       try {
         const found = await scanBarcode(video);
         if (found && found.value && active) {
-          if (isInvoice) {
-            const rawCandidate = found.value.replace(/[\s\-\.\#\:\/]/g, '');
-            if (rawCandidate.length >= 2) {
-              playBeep();
-              vibrate();
-              handleResult({ dnNumber: rawCandidate, name: '', city: '' });
-              onClose();
-            }
-          } else {
-            const rawCandidate = isMaterial || isName
-              ? found.value.trim()
-              : found.value.replace(/[\s\-\.\#\:\/]/g, '');
+          const rawCandidate = isMaterial
+            ? found.value.trim()
+            : found.value.replace(/[\s\-\.\#\:\/]/g, '');
 
-            if (rawCandidate.length >= 2) {
-              playBeep();
-              vibrate();
-              handleResult(rawCandidate);
-              onClose();
-            }
+          if (rawCandidate.length >= 2) {
+            playBeep();
+            vibrate();
+            handleResult(rawCandidate);
+            onClose();
           }
         }
       } catch (_) {
@@ -117,13 +94,13 @@ export function ScanDNModal({
       active = false;
       clearInterval(interval);
     };
-  }, [isOpen, isReady, camError, isProcessingOcr, isMaterial, isInvoice, isName, onClose, videoRef]);
+  }, [isOpen, isReady, camError, isProcessingOcr, isMaterial, onClose, videoRef]);
 
   // Fallback: OCR capture if barcode is missing or not scanning
   const handleOcrCapture = async () => {
     if (isProcessingOcr) return;
     setIsProcessingOcr(true);
-    setStatusMsg(`Running OCR to extract ${isInvoice ? 'Invoice details' : isName ? 'Customer Name' : isMaterial ? 'Material code' : 'DN number'}...`);
+    setStatusMsg(`Running OCR to extract ${isMaterial ? 'Material code' : 'DN number'}...`);
 
     try {
       const frame = captureFrame();
@@ -133,63 +110,45 @@ export function ScanDNModal({
         return;
       }
 
-      let extractedResult = null;
-
-      // Helper to process full OCR text according to mode
-      const processOcrText = (fullText, words = []) => {
-        if (isInvoice) {
-          const dnExt = extractDNNumber(fullText, words);
-          const custExt = extractCustomerDetails(fullText);
-          if (dnExt?.value || custExt?.name) {
-            return {
-              dnNumber: dnExt?.value || '',
-              name: custExt?.name || '',
-              city: custExt?.city || '',
-            };
-          }
-          return null;
-        }
-
-        if (isName) {
-          const custExt = extractCustomerDetails(fullText);
-          return custExt?.name || null;
-        }
-
-        if (isMaterial) {
-          const ext = extractInventoryCode(fullText, words, 'material');
-          return ext?.value || null;
-        }
-
-        const ext = extractDNNumber(fullText, words);
-        return ext?.value || null;
-      };
+      let extractedCode = null;
 
       // Try PaddleOCR first
       try {
         const paddleRes = await recognizeWithPaddle(frame.dataUrl);
         if (paddleRes?.lines) {
           const fullText = paddleRes.lines.map(l => l.text).join('\n');
-          extractedResult = processOcrText(fullText, []);
+          if (isMaterial) {
+            const ext = extractInventoryCode(fullText, [], 'material');
+            if (ext?.value) extractedCode = ext.value;
+          } else {
+            const ext = extractDNNumber(fullText, []);
+            if (ext?.value) extractedCode = ext.value;
+          }
         }
       } catch (_) {}
 
       // Fallback to Tesseract if paddle did not extract
-      if (!extractedResult) {
+      if (!extractedCode) {
         await initOCR();
         const tesseractRes = await recognizeImage(frame.dataUrl);
         if (tesseractRes?.text) {
-          extractedResult = processOcrText(tesseractRes.text, tesseractRes.words || []);
+          if (isMaterial) {
+            const ext = extractInventoryCode(tesseractRes.text, tesseractRes.words || [], 'material');
+            if (ext?.value) extractedCode = ext.value;
+          } else {
+            const ext = extractDNNumber(tesseractRes.text, tesseractRes.words || []);
+            if (ext?.value) extractedCode = ext.value;
+          }
         }
       }
 
-      if (extractedResult) {
+      if (extractedCode) {
         playBeep();
         vibrate();
-        handleResult(extractedResult);
+        handleResult(extractedCode);
         onClose();
       } else {
-        const fieldName = isInvoice ? 'Invoice details' : isName ? 'Customer Name' : isMaterial ? 'Material Code' : 'DN Number';
-        setStatusMsg(`❌ Could not detect ${fieldName}. Try getting closer or enter manually.`);
+        setStatusMsg(`❌ Could not detect ${isMaterial ? 'Material Code' : 'DN Number'}. Try getting closer or enter manually.`);
       }
     } catch (err) {
       setStatusMsg(`❌ OCR error: ${err.message}`);
