@@ -40,13 +40,19 @@ describe('tsplGenerator', () => {
     expect(tspl).toContain('PRINT 3, 1');
   });
 
-  it('handles empty materials gracefully without crash', () => {
+  it('sanitizes double quotes and control characters to prevent TSPL syntax errors', () => {
     const tspl = generateBoxLabelTSPL({
-      dnNumber: '12345678',
-      boxNumber: '1',
-      materials: [],
+      dnNumber: '2134"621450',
+      boxNumber: 'Box "3"\n',
+      materials: [{ code: 'MAT "A"\r\n', qty: '10"' }],
       copies: 1,
     });
-    expect(tspl).toContain('"No items"');
+
+    // Content inside quotes must not have unescaped quotes or raw newlines
+    expect(tspl).not.toContain('2134"621450"');
+    expect(tspl).toContain('"2134 621450"');
+    expect(tspl).toContain('"Box 3"');
+    expect(tspl).toContain('"MAT A"');
+    expect(tspl).toContain('"10"');
   });
 });

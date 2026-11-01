@@ -3,6 +3,14 @@
  * Creates a clean bordered grid table for box labels and a scannable Code-128 barcode at the bottom.
  */
 
+function sanitizeTSPL(val) {
+  if (val == null) return '';
+  return String(val)
+    .replace(/["\r\n\t]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function generateBoxLabelTSPL({
   dnNumber = '',
   boxNumber = '',
@@ -10,8 +18,8 @@ export function generateBoxLabelTSPL({
   copies = 1,
   fixedHeightMm = null,
 }) {
-  const cleanDN = String(dnNumber || '').trim();
-  const cleanBox = String(boxNumber || '').trim();
+  const cleanDN = sanitizeTSPL(dnNumber);
+  const cleanBox = sanitizeTSPL(boxNumber);
   const validMaterials = materials.filter(m => m && (m.code || m.qty));
 
   // 203 DPI = 8 dots per mm. Printable width for 72mm is ~576 dots.
@@ -72,8 +80,8 @@ export function generateBoxLabelTSPL({
   } else {
     validMaterials.forEach((mat, idx) => {
       const itemY = topY + rowHeight * (3 + idx) + 14;
-      const code = String(mat.code || '').trim();
-      const qty = String(mat.qty || '').trim();
+      const code = sanitizeTSPL(mat.code);
+      const qty = sanitizeTSPL(mat.qty);
       lines.push(`TEXT ${leftX + 12}, ${itemY}, "3", 0, 1, 1, "${code || '-'}"`);
       lines.push(`TEXT ${colSplitX + 14}, ${itemY}, "3", 0, 1, 1, "${qty || '-'}"`);
     });
