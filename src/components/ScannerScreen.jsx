@@ -400,35 +400,6 @@ export function ScannerScreen({ module = 'dispatch', mode, onBack }) {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Barcode live scan toggle */}
-          <button
-            onClick={() => setAutoBarcode(prev => {
-              const next = !prev;
-              localStorage.setItem('haeger_auto_barcode', next ? 'true' : 'false');
-              return next;
-            })}
-            className={`text-[11px] font-semibold px-2 py-1 rounded-lg border flex items-center gap-1 transition-all ${
-              autoBarcode
-                ? 'bg-emerald-950/80 border-emerald-600 text-emerald-300'
-                : 'bg-gray-900 border-gray-700 text-gray-400'
-            }`}
-            title={autoBarcode ? "Live barcode scanning is ON" : "Live barcode scanning is OFF"}
-          >
-            <span>⚡</span> {autoBarcode ? 'Barcode' : 'Manual'}
-          </button>
-
-          {/* Engine Selector */}
-          <select
-            value={engineChoice}
-            onChange={(e) => handleSetEngine(e.target.value)}
-            className="text-[11px] bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 rounded-lg outline-none cursor-pointer max-w-[110px] sm:max-w-none truncate"
-            title="OCR Engine"
-          >
-            <option value="auto">⚡ Auto (Barcode+OCR)</option>
-            <option value="paddle">⚡ Neural OCR</option>
-            <option value="tesseract">🔷 Standard OCR</option>
-          </select>
-
           <div className="text-xs text-green-400 font-semibold pl-0.5">
             {records.filter(r=>r.status==='COMPLETE').length}✓
           </div>
